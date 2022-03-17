@@ -1,6 +1,6 @@
 #!/bin/sh
 
-#set -ue
+set -ue
 set -x
 
 readonly program=${0##*/}
@@ -96,6 +96,7 @@ main() {
 ## message if one of these variables aren't set/sane.
 check_config_variables() {
 	error_message="$program: ('$config_file'): "
+	window_regex='^[[:digit:]]+x[[:digit:]]+\+[[:digit:]]+\+[[:digit:]]+$'
 
 	for parameter in use_xdg automater searcher explorer window_attributes_rest \
 	                 window_attributes_file_selector project_directory; do
@@ -105,22 +106,22 @@ check_config_variables() {
 	
 	## check for sane values
 	(
-		{ who=window_attributes_rest; printf '%s' "$window_attributes_rest" | grep -Eq '^$'; }                   &&
-		{ who=window_attributes_file_selector; printf '%s' "$window_attributes_file_selector" | grep -Eq '^$'; } &&
+		{ who=window_attributes_rest; printf '%s' "$window_attributes_rest" | grep -Eq "$window_regex"; }                   &&
+		{ who=window_attributes_file_selector; printf '%s' "$window_attributes_file_selector" | grep -Eq "$window_regex"; } &&
 		{ who=use_xdg; printf '%s' "$use_xdg" | grep -Eq '^true|false$'; }
 	) || die "$error_message" "content of '$who' isn't valid"
 
-	# we should expect real paths
-	OLD_IFS=$IFS; IFS=$'\n'
-	for dir in $project_directory; do [ -d "$dir" ] || die "$error_message" "'$dir' isn't a directory"; done
-	
 	# now we should expect executable binaries/sh-functions/aliases
-	IFS=$':'
-	for dependencies in explorer automater searcher; do
+	OLD_IFS=$IFS; IFS=$':'
+	for dependency in explorer automater searcher; do
 		found=false
-		for bin_dir in $PATH; do [ -x "${bin_dir##/}/$dependencies" ] && { found=true; break; }; done
-		[ $found = false ] && die "$error_message" "'$dependencies' isn't found"
+		for bin_dir in $PATH; do [ -x "${bin_dir%%/}/$dependency" ] && { found=true; break; }; done
+		[ $found = false ] && die "$error_message" "'$dependency' isn't found"
 	done
+
+	# check if these project dirs exist
+	IFS=$'\n'
+	for dir in $project_directory; do [ -d "$dir" ] || die "$error_message" "'$dir' isn't a directory"; done
 	IFS=$OLD_IFS
 }
 
@@ -146,8 +147,13 @@ open() {
 	else
 		if [ "$input" = f -o "$input" = F ]
 		then
+			if [ `printf '%s' "$project_directory" | wc -l` -ne 1 ]; then
+				project_directory=$(printf '%s' "$project_directory" | eval "$searcher")
+			fi
+
+			[ -n "$project_directory" ] || return
 			[ -r "$project_directory" ] || return
-			project_name=$(ls -F $project_directory | sed -n 's#/$##p' | eval "$searcher" | tr _ '\034' | tr . _)
+			project_name=$(ls -F "$project_directory" | sed -n 's#/$##p' | eval "$searcher" | tr _ '\034' | tr . _)
 
 			[ -z "$project_name" ] && return
 			{
@@ -155,6 +161,7 @@ open() {
 				tmux new-session -s "$project_name"    ||
 				tmux attach-session -t "$project_name"
 			} >/dev/null 2>&1
+
 		elif [ -z "$input" ]; then return
 		else
 			tmux new-session -s "$(printf '%s' "$input" | tr _ '\034' | tr . _)"
