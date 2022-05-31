@@ -1,0 +1,10 @@
+### See License file for copyright and license details.
+## c
+clang:make
+clang:sudo make install
+clang:make clean
+clang:sudo make install && make clean
+clang:gcc *.c -o /tmp/prog && /tmp/prog
+## perl
+## raku
+## javascript

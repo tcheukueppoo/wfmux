@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# display_image x y w h i prog_path bgcolor
+# -----------------------------------------
+# Display image on the terminal.
+display_image ()
+{
+	# 1: xoffset, 2: yoffset
+	# 3: width,   4: height
+	# 5: image,   6: path_to_w3m_img
+	# 7: background color
+	printf '%b\n%s;\n%s\n' "0;1;$1;$2;$3;$4;;;;;$5" 3 4 | "$6" #-bg "$7"
+}
+
+display_image "$@"
