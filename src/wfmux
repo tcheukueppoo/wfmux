@@ -1,7 +1,67 @@
 #!/bin/sh
 
-### Description
-### wfmux attempts to build an incredible workflow
-### with tmux && fzf
+set -ue
 
+program="${0##*/}"
+config_file="$HOME/wfmux/wfmux.conf"
 
+## emulate perl's die subroutine
+die() {
+	printf '%s\n' "$@"
+	exit 1
+}
+
+## Parse command line arguments
+## Examples:
+##    wfmux opname
+##    wfmux opname -c "/path/to/config"
+##    wfmux -h|-help|--help|-u|-usage|--usage
+## where opname = qw(select explore push commit auto)
+parse_arguments() {
+	error_message="is an unrecognized option, please try \`$program --usage' for more information";
+
+	if [ $# -eq 1 ]; then
+		case "$1" in
+			push|commit|select|explore|auto)
+				eval "$1" 
+				;;
+			-u|-usage|--usage)
+				usage
+				;;
+			-h|-help|--help)
+				help_me
+				;;
+			*)
+				die $1 $error_message
+				;;
+		esac
+	elif [ $# -eq 3 ]; then
+		case "$1" in
+			push|commit|select|explore|auto)
+				case "$2" in
+					-c|-config|--config)
+						config_file="$3"
+						[ -e "$config_file" ] || die "'$config_file' does not exist"
+						[ -r "$config_file" ] || die "no permission to read '$config_file'"
+						generate_source_file  || die "could not parse configuration file"
+						eval "$1"
+						;;
+					*)
+						die $2 $error_message
+						;;
+				esac
+				;;
+			*)
+				die $1 $error_message
+				;;
+		esac
+	else die "invalid argument count, please try \`$program --usage' for more information"; fi
+}
+
+## Each time wfmux start, it has to source ~/.wfmux/source.sh to load
+## user configuration data
+generate_source_file() {
+	source_file="$HOME/.wfmux/source.sh"
+
+	cat ""perl -e ""
+}

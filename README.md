@@ -23,7 +23,7 @@ the project in question.
 a tmux popup pane.
 
 - Fuzzyly select a project file to (xdg-)?open.
-- Fuzzyly select projects files to bind them an automation task.
+- Fuzzyly select projects files to bind them to an automation program.
 - Navigate and manipulate files with your favorite terminal file manager.
 - Push (if commited) changes to your remote repositories.
 - Add to the index and Commit your changes.
@@ -62,7 +62,7 @@ wfmux open files with xdg-open.
 ## effect
 use xdg;
 
-## set the list of directories which contains your projects
+## set the list of directories which contains your projects directories
 project_directory "~/projects" "~/.local/projects"
 
 ## Set default programs for openning your project files
