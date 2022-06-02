@@ -1,0 +1,7 @@
+#!/bin/sh
+
+### Description
+### wfmux attempts to build an incredible workflow
+### with tmux && fzf
+
+
