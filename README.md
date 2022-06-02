@@ -1,5 +1,7 @@
 # WFMUX: Build an incredible dev workflow with tmux, fzf, entr, and nnn.
 
+(**written in posix sh**)
+
 ## Concept
 
 
@@ -27,27 +29,59 @@ The only fundamental rule is to always use tmux.
 
 ## Configuration
 
-Wfmux has two configuration file
+A pretty intuitive configuration since we both know the objective
 
-### Command template for projects (~/.wfmux/cmdset.conf)
-
-```
-
-```
-
-### Automate build and program restart (~/.wfmux/watch.conf)
+The `program` directive set the default application for open 
+if we decide to `use xdg` then the `programs` directive is ignore wfmux
+open files with xdg-open.
 
 ```
 
-watchers = {
-	
-}
+## open files with xdg-open, note that the existence
+## of the `program` directive below will overide this
+## effect
+use xdg;
+
+## set the list of directories which contains your projects
+project_directory "~/projects" "~/.local/projects"
+
+## Set default programs for openning your project files
+program [
+	text:     nvim;
+	video:    ffmpeg;
+	database: prog_name;
+	audio:    aplay;
+	image:    feh;
+	pdfs:     zathura;
+];
+
+## navigate through files with nnn
+explorer: nnn;
+
+## fuzzyly select files with fzf
+searcher: fzf;
+
+## automate build and server restart with entr
+## NB: the automate process is an interactive project
+## which is configured interactively.
+automater: entr;
+
+## a list of command templates which are usually automated
+automation_templates: "~/.wfmux/template";
+
+## set popup window attributes for the file selector
+window_attributes_file_selector 20x20+10+20;
+
+## set popup window attributes for every other operation
+## that entails the use of a window
+window_attributes_rest 20x20+10+20;
 
 ```
 
 ## Screenshots
 
-![](./screenshots/nvim.png)
+![](./screenshots/nvim1.png)
+![](./screenshots/nvim2.png)
 
 ## Advantages
 
