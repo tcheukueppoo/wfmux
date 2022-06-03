@@ -1,67 +1,96 @@
 #!/bin/sh
 
-set -ue
+#set -ue
 
-program="${0##*/}"
-config_file="$HOME/wfmux/wfmux.conf"
+readonly program_name=${0##*/}
+config_file="$HOME/.config/wfmux/wfmux.conf"
 
-## emulate perl's die subroutine
-die() {
-	printf '%s\n' "$@"
-	exit 1
-}
+use_xdg=yes
+automater=entr
+explorer=nnn
+searcher=fzf
+automation_templates="$HOME/.config/wfmux/template"
+window_attributes_rest=20x20+10+20
+window_attributes_file_selector=20x20+10+20
+project_directory="$HOME/projects"
+read -r -d '' programs <<-EOF
+	pdf:      zathura
+	text:     nvim
+	video:    ffmpeg
+	audio:    aplay
+	image:    feh
+	database: prog_name
+EOF
 
-## Parse command line arguments
-## Examples:
-##    wfmux opname
-##    wfmux opname -c "/path/to/config"
-##    wfmux -h|-help|--help|-u|-usage|--usage
-## where opname = qw(select explore push commit auto)
-parse_arguments() {
-	error_message="is an unrecognized option, please try \`$program --usage' for more information";
-
+main() {
+	error_message="is an unrecognized option, please try \`$program_name --usage'";
 	if [ $# -eq 1 ]; then
-		case "$1" in
-			push|commit|select|explore|auto)
+		case $1 in
+			push|commit|select|explore|auto|open)
 				eval "$1" 
 				;;
-			-u|-usage|--usage)
+			-h|-help|--help)
 				usage
 				;;
-			-h|-help|--help)
-				help_me
-				;;
 			*)
-				die $1 $error_message
+				die "$1" "$error_message"
 				;;
 		esac
 	elif [ $# -eq 3 ]; then
-		case "$1" in
-			push|commit|select|explore|auto)
-				case "$2" in
+		case $1 in
+			push|commit|select|explore|auto|open)
+				case $2 in
 					-c|-config|--config)
-						config_file="$3"
+						config_file=$3
 						[ -e "$config_file" ] || die "'$config_file' does not exist"
 						[ -r "$config_file" ] || die "no permission to read '$config_file'"
-						generate_source_file  || die "could not parse configuration file"
+						. $config_file || die "could not source configuration file"
 						eval "$1"
 						;;
 					*)
-						die $2 $error_message
+						die "$2" "$error_message"
 						;;
 				esac
 				;;
 			*)
-				die $1 $error_message
+				die "$1" "$error_message"
 				;;
 		esac
-	else die "invalid argument count, please try \`$program --usage' for more information"; fi
+	else
+		die "invalid option count, please try \`$program_name --usage'"
+	fi
 }
 
-## Each time wfmux start, it has to source ~/.wfmux/source.sh to load
-## user configuration data
-generate_source_file() {
-	source_file="$HOME/.wfmux/source.sh"
+usage() {
+	cat<<EOF
+Build an awesome dev workflow with tmux, fzf, nnn, and entr.
+usage: wfmux operation_name [options]
 
-	cat ""perl -e ""
+Options:
+     -h, -help, --help            print this help message.
+     -c, -config, --config FILE   load FILE configuration file.
+
+operation_name:
+    open      fuzzyly select a project and open a new tmux session.
+    auto      select set of files to watch and bind them to a commmand.
+    explore   open your favorite file manager on a popup tmux pane.
+    select    fuzzyly select a file to open provided that they exist
+              a recently use tmux session which carries the name of your
+              project.
+    commit    add to the index and commit changes to local repository.
+    push      push to the configured remote repositories.
+EOF
 }
+
+## emulate perl's die subroutine
+die() {
+	printf '%s\n' "$*"
+	exit 1
+}
+
+## select a project and open a tmux session
+open() {
+	:
+}
+
+main "$@"
