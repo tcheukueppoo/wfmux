@@ -1,12 +1,37 @@
-# WFMUX: Build an incredible dev workflow with tmux, fzf, entr, and nnn.
+# WFMUX: Build an awesome dev workflow with tmux, fzf, entr, and nnn.
 
 (**written in posix sh**)
 
 ## Concept
 
+I don't know if that's your case but my development process consist of creating a project
+editing some files and if there's something to build, then I build it, if there is a server
+to restart then I restart it and at some point I've to push the result to a remote repository,
+but well everyone does it.
 
+This project aims to automate this process by not so much depending on (n)vim plugins but
+rather use the existing external programs that do the same job the plugins do and we archieve
+this with the help of tmux popup windows which run these external programs.
 
-## Why such a setup
+The only fundamental rule is to **always** use tmux.
+
+1. So in short what happens is, when you open your terminal emulator, you are asked to fuzzyly
+select a project, then when you select a project a new tmux sessions opens which represents
+the project in question.
+
+2. Within this tmux session, you are provided with bindings to perform the following operations on
+a tmux popup pane.
+
+- Fuzzyly select a project file to (xdg-)?open.
+- Fuzzyly select projects files to bind them an automation task.
+- Navigate and manipulate files with your favorite terminal file manager.
+- Push (if commited) changes to your remote repositories.
+- Add to the index and Commit your changes.
+
+Much is to come based on your needs. I believe the last two task exists because they are
+frequently performed.
+
+## Why this kind of setup?
 
 Most of the time we are trying to do everything inside (n)vim and this requires a lot
 of plugins and somehow (n)vim startup time become huge not to mention how difficult is
@@ -22,10 +47,6 @@ and much more.
 
 So why do we want to slow down our incredibly fast (n)vim editor? but well I guess
 everyone has his/her own reasons :-).
-
-## Rules
-
-The only fundamental rule is to always use tmux.
 
 ## Configuration
 
