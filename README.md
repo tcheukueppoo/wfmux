@@ -50,11 +50,10 @@ everyone has his/her own reasons :-).
 
 ## Configuration
 
-A pretty intuitive configuration since we both know the objective
-
-The `program` directive set the default application for open 
-if we decide to `use xdg` then the `programs` directive is ignore wfmux
-open files with xdg-open.
+A pretty intuitive configuration since we both know the concept.
+The `program` directive set the default applications to open files but
+if we decide to `use xdg` then the `program` directive is ignored and
+wfmux open files with xdg-open.
 
 ```
 
@@ -68,12 +67,12 @@ project_directory "~/projects" "~/.local/projects"
 
 ## Set default programs for openning your project files
 program [
-	text:     nvim;
-	video:    ffmpeg;
-	database: prog_name;
-	audio:    aplay;
-	image:    feh;
-	pdfs:     zathura;
+	pdf:      zathura,
+	text:     nvim,
+	video:    ffmpeg,
+	audio:    aplay,
+	image:    feh,
+	database: prog_name,
 ];
 
 ## navigate through files with nnn
