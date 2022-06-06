@@ -1,6 +1,7 @@
 #!/bin/sh
 
 #set -ue
+set -x
 
 readonly program_name=${0##*/}
 config_file="${XDG_CONFIG_HOME:-"$HOME/.config"}"
@@ -23,6 +24,32 @@ programs=$(cat <<-EOF
 	database: prog_name
 	EOF
 )
+
+usage() {
+	cat<<EOF
+Build an awesome dev workflow with tmux, fzf, nnn, and entr.
+usage: wfmux operation_name [options]
+
+Options:
+     -h, -help, --help            print this help message.
+     -c, -config, --config FILE   load FILE configuration file.
+
+operation_name:
+    open      fuzzyly select a project and open a new tmux session.
+    auto      select set of files to watch and bind them to a commmand.
+    explore   open your favorite file manager on a popup tmux pane.
+    select    fuzzyly select a file to open provided that they exist
+              a recently used tmux session which carries the name of your
+              project.
+    commit    add to the index and commit changes to local repository.
+    push      push to the preconfigured remote repositories.
+EOF
+}
+
+die() {
+	printf '%s\n' "$*"
+	exit 1
+}
 
 main() {
 	error_message="is an unrecognized option, please try \`$program_name --usage'";
@@ -63,30 +90,29 @@ main() {
 	fi
 }
 
-die() {
-	printf '%s\n' "$*"
-	exit 1
-}
+## Check if variables are unset or null	and if set then
+## check if the data is somehow our expectation.
+## We won't have to rely on `set -u`, we would want to output an error
+## message if one of these variables aren't set.
+check_config_variables() {
+	programs='([[:alnum:]_]+([[:space:]])+:([[:space:]])+[[:alnum:]_]+){1,}'
+	window_attributes_rest_regex='[[:digit:]]+x[[:digit:]]+\+[[:digit:]]+\+[[:digit:]]+'
+	window_attributes_file_selector_regex=$window_attributes_rest_regex
+	match_regex='printf "%s" "$i" | grep -qE "${i}_regex"'
+	path_exists='command -v "$i" >/dev/null'
 
-usage() {
-	cat<<EOF
-Build an awesome dev workflow with tmux, fzf, nnn, and entr.
-usage: wfmux operation_name [options]
-
-Options:
-     -h, -help, --help            print this help message.
-     -c, -config, --config FILE   load FILE configuration file.
-
-operation_name:
-    open      fuzzyly select a project and open a new tmux session.
-    auto      select set of files to watch and bind them to a commmand.
-    explore   open your favorite file manager on a popup tmux pane.
-    select    fuzzyly select a file to open provided that they exist
-              a recently used tmux session which carries the name of your
-              project.
-    commit    add to the index and commit changes to local repository.
-    push      push to the preconfigured remote repositories.
-EOF
+	for i in use-xdg automater searcher explorer window_attributes_rest window_attributes_file_selector project_directory programs 
+	do
+		if [ `eval "printf '%s' \${$i:-NaN}"` = NaN ]
+		then
+			if [ `eval "printf '%s' \${${i}_regex:-NaN}"` = NaN ]
+			then
+				eval "$match_regex" || die "$program_name: ('$config_file'): '$i' is null/unset"
+			else
+				
+			fi
+		fi
+	done
 }
 
 ## select a project and open a tmux session
@@ -97,29 +123,30 @@ open() {
 		tmux list-sessions | awk '{print NR") "$0}'
 	fi
 	cat<<-EOF
+
 		- Enter the name of your new tmux session
-		- Enter f«Return» to select and open a new project
-		- Enter «Return» to drop tmux
+		- Enter f«return» to select and open a new project
+		- Enter «return» to drop tmux
 	EOF
 	read -p "»»» " input
 	tput clear
 
-	if [ "$input" == f -o "$input" == F ]
+	if [ "$input" = f -o "$input" = F ]
 	then
 		[ -r "$project_directory" ] || return
 		project_name=$(ls -F $project_directory | sed -n 's#/$##p' | eval "$searcher" | tr _ '\034' | tr . _)
 
 		[ -z "$project_name" ] && return
 		{
-			tmux has-session -t "$project_name" ||
-			tmux attach "$project_name"         &&
-			tmux new-session -s "$project_name"
+			tmux has-session -t "$project_name"    &&
+			tmux new-session -s "$project_name"    ||
+			tmux attach-session -t "$project_name"
 		} >/dev/null 2>&1
 	elif [ -z "$input" ]; then return
 	else
 		if expr "$input" : '^[0-9][0-9]*$'; then
-			session_name=$(tmux list-sessions -F '#S' | sed -n "${input}d")
-			[ -n "$session_name" ] && tmux attach "$session_name"
+			session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
+			[ -n "$session_name" ] && tmux attach-session -t "$session_name"
 		else
 			tmux new-session -s "$(printf '%s' "$input" | tr _ '\034' | tr . _)"
 		fi
@@ -128,7 +155,7 @@ open() {
 
 ## select your project files to open
 select() {
-
+	:;
 }
 
 main "$@"
