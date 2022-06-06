@@ -3,7 +3,8 @@
 #set -ue
 
 readonly program_name=${0##*/}
-config_file="$HOME/.config/wfmux/wfmux.conf"
+config_file="${XDG_CONFIG_HOME:-"$HOME/.config"}"
+wfmux_config="${config_file%%/}/wfmux/wfmux.conf"
 
 use_xdg=yes
 automater=entr
@@ -13,14 +14,15 @@ automation_templates="$HOME/.config/wfmux/template"
 window_attributes_rest=20x20+10+20
 window_attributes_file_selector=20x20+10+20
 project_directory="$HOME/projects"
-read -r -d '' programs <<-EOF
+programs=$(cat <<-EOF
 	pdf:      zathura
 	text:     nvim
 	video:    ffmpeg
 	audio:    aplay
 	image:    feh
 	database: prog_name
-EOF
+	EOF
+)
 
 main() {
 	error_message="is an unrecognized option, please try \`$program_name --usage'";
@@ -41,10 +43,10 @@ main() {
 			push|commit|select|explore|auto|open)
 				case $2 in
 					-c|-config|--config)
-						config_file=$3
-						[ -e "$config_file" ] || die "'$config_file' does not exist"
-						[ -r "$config_file" ] || die "no permission to read '$config_file'"
-						. $config_file || die "could not source configuration file"
+						wfmux_config=$3
+						[ -e "$wfmux_config" ] || die "'$wfmux_config' does not exist"
+						[ -r "$wfmux_config" ] || die "no permission to read '$wfmux_config'"
+						. $wfmux_config || die "could not source configuration file"
 						eval "$1"
 						;;
 					*)
@@ -59,6 +61,11 @@ main() {
 	else
 		die "invalid option count, please try \`$program_name --usage'"
 	fi
+}
+
+die() {
+	printf '%s\n' "$*"
+	exit 1
 }
 
 usage() {
@@ -82,15 +89,46 @@ operation_name:
 EOF
 }
 
-## emulate perl's die subroutine
-die() {
-	printf '%s\n' "$*"
-	exit 1
-}
-
 ## select a project and open a tmux session
 open() {
-	
+	if tmux list-sessions >/dev/null 2>&1
+	then
+		printf '%s\n' "Choose an existing session to attach"
+		tmux list-sessions | awk '{print NR") "$0}'
+	fi
+	cat<<-EOF
+		- Enter the name of your new tmux session
+		- Enter f«Return» to select and open a new project
+		- Enter «Return» to drop tmux
+	EOF
+	read -p "»»» " input
+	tput clear
+
+	if [ "$input" == f -o "$input" == F ]
+	then
+		[ -r "$project_directory" ] || return
+		project_name=$(ls -F $project_directory | sed -n 's#/$##p' | eval "$searcher" | tr _ '\034' | tr . _)
+
+		[ -z "$project_name" ] && return
+		{
+			tmux has-session -t "$project_name" ||
+			tmux attach "$project_name"         &&
+			tmux new-session -s "$project_name"
+		} >/dev/null 2>&1
+	elif [ -z "$input" ]; then return
+	else
+		if expr "$input" : '^[0-9][0-9]*$'; then
+			session_name=$(tmux list-sessions -F '#S' | sed -n "${input}d")
+			[ -n "$session_name" ] && tmux attach "$session_name"
+		else
+			tmux new-session -s "$(printf '%s' "$input" | tr _ '\034' | tr . _)"
+		fi
+	fi
+}
+
+## select your project files to open
+select() {
+
 }
 
 main "$@"
