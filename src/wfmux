@@ -75,10 +75,10 @@ operation_name:
     auto      select set of files to watch and bind them to a commmand.
     explore   open your favorite file manager on a popup tmux pane.
     select    fuzzyly select a file to open provided that they exist
-              a recently use tmux session which carries the name of your
+              a recently used tmux session which carries the name of your
               project.
     commit    add to the index and commit changes to local repository.
-    push      push to the configured remote repositories.
+    push      push to the preconfigured remote repositories.
 EOF
 }
 
@@ -90,7 +90,7 @@ die() {
 
 ## select a project and open a tmux session
 open() {
-	:
+	
 }
 
 main "$@"
