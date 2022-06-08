@@ -3,7 +3,7 @@
 #set -ue
 set -x
 
-readonly program_name=${0##*/}
+readonly program=${0##*/}
 config_file="${XDG_CONFIG_HOME:-"$HOME/.config"}"
 wfmux_config="${config_file%%/}/wfmux/wfmux.conf"
 
@@ -14,7 +14,14 @@ searcher=fzf
 automation_templates="$HOME/.config/wfmux/template"
 window_attributes_rest=20x20+10+20
 window_attributes_file_selector=20x20+10+20
-project_directory="$HOME/projects"
+
+project_directory=$(cat <<-EOF
+	$HOME/projects
+	$HOME/aprojects
+	$HOME/oprojects
+	EOF
+)
+
 programs=$(cat <<-EOF
 	pdf:      zathura
 	text:     nvim
@@ -52,18 +59,15 @@ die() {
 }
 
 main() {
-	error_message="is an unrecognized option, please try \`$program_name --usage'";
+	error_message="is an unrecognized option, please try \`$program --usage'";
 	if [ $# -eq 1 ]; then
 		case $1 in
 			push|commit|select|explore|auto|open)
-				eval "$1" 
-				;;
+				eval "$1" ;;
 			-h|-help|--help)
-				usage
-				;;
+				usage ;;
 			*)
-				die "$1" "$error_message"
-				;;
+				die "$1" "$error_message" ;;
 		esac
 	elif [ $# -eq 3 ]; then
 		case $1 in
@@ -74,45 +78,50 @@ main() {
 						[ -e "$wfmux_config" ] || die "'$wfmux_config' does not exist"
 						[ -r "$wfmux_config" ] || die "no permission to read '$wfmux_config'"
 						. $wfmux_config || die "could not source configuration file"
-						eval "$1"
-						;;
+						eval "$1" ;;
 					*)
-						die "$2" "$error_message"
-						;;
-				esac
-				;;
+						die "$2" "$error_message" ;;
+				esac ;;
 			*)
-				die "$1" "$error_message"
-				;;
+				die "$1" "$error_message" ;;
 		esac
 	else
-		die "invalid option count, please try \`$program_name --usage'"
+		die "invalid option count, please try \`$program --usage'"
 	fi
 }
 
 ## Check if variables are unset or null	and if set then
 ## check if the data is somehow our expectation.
 ## We won't have to rely on `set -u`, we would want to output an error
-## message if one of these variables aren't set.
+## message if one of these variables aren't set/sane.
 check_config_variables() {
-	programs='([[:alnum:]_]+([[:space:]])+:([[:space:]])+[[:alnum:]_]+){1,}'
-	window_attributes_rest_regex='[[:digit:]]+x[[:digit:]]+\+[[:digit:]]+\+[[:digit:]]+'
-	window_attributes_file_selector_regex=$window_attributes_rest_regex
-	match_regex='printf "%s" "$i" | grep -qE "${i}_regex"'
-	path_exists='command -v "$i" >/dev/null'
+	error_message="$program: ('$config_file'): "
 
-	for i in use-xdg automater searcher explorer window_attributes_rest window_attributes_file_selector project_directory programs 
-	do
-		if [ `eval "printf '%s' \${$i:-NaN}"` = NaN ]
-		then
-			if [ `eval "printf '%s' \${${i}_regex:-NaN}"` = NaN ]
-			then
-				eval "$match_regex" || die "$program_name: ('$config_file'): '$i' is null/unset"
-			else
-				
-			fi
-		fi
+	for parameter in use_xdg automater searcher explorer window_attributes_rest \
+	                 window_attributes_file_selector project_directory; do
+		eval "parameter=\${$parameter:-NaN}"
+		[ "$parameter" = NaN ] && die "$error_message" "'$parameter' isn't set"
 	done
+	
+	## check for sane values
+	(
+		{ who=window_attributes_rest; printf '%s' "$window_attributes_rest" | grep -Eq '^$'; }                   &&
+		{ who=window_attributes_file_selector; printf '%s' "$window_attributes_file_selector" | grep -Eq '^$'; } &&
+		{ who=use_xdg; printf '%s' "$use_xdg" | grep -Eq '^true|false$'; }
+	) || die "$error_message" "content of '$who' isn't valid"
+
+	# we should expect real paths
+	OLD_IFS=$IFS; IFS=$'\n'
+	for dir in $project_directory; do [ -d "$dir" ] || die "$error_message" "'$dir' isn't a directory"; done
+	
+	# now we should expect executable binaries/sh-functions/aliases
+	IFS=$':'
+	for dependencies in explorer automater searcher; do
+		found=false
+		for bin_dir in $PATH; do [ -x "${bin_dir##/}/$dependencies" ] && { found=true; break; }; done
+		[ $found = false ] && die "$error_message" "'$dependencies' isn't found"
+	done
+	IFS=$OLD_IFS
 }
 
 ## select a project and open a tmux session
@@ -131,25 +140,26 @@ open() {
 	read -p "»»» " input
 	tput clear
 
-	if [ "$input" = f -o "$input" = F ]
-	then
-		[ -r "$project_directory" ] || return
-		project_name=$(ls -F $project_directory | sed -n 's#/$##p' | eval "$searcher" | tr _ '\034' | tr . _)
-
-		[ -z "$project_name" ] && return
-		{
-			tmux has-session -t "$project_name"    &&
-			tmux new-session -s "$project_name"    ||
-			tmux attach-session -t "$project_name"
-		} >/dev/null 2>&1
-	elif [ -z "$input" ]; then return
+	if expr "$input" : '^[0-9][0-9]*$'; then
+		session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
+		[ -n "$session_name" ] && tmux attach-session -t "$session_name"
 	else
-		if expr "$input" : '^[0-9][0-9]*$'; then
-			session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
-			[ -n "$session_name" ] && tmux attach-session -t "$session_name"
+		if [ "$input" = f -o "$input" = F ]
+		then
+			[ -r "$project_directory" ] || return
+			project_name=$(ls -F $project_directory | sed -n 's#/$##p' | eval "$searcher" | tr _ '\034' | tr . _)
+
+			[ -z "$project_name" ] && return
+			{
+				tmux has-session -t "$project_name"    &&
+				tmux new-session -s "$project_name"    ||
+				tmux attach-session -t "$project_name"
+			} >/dev/null 2>&1
+		elif [ -z "$input" ]; then return
 		else
 			tmux new-session -s "$(printf '%s' "$input" | tr _ '\034' | tr . _)"
 		fi
+
 	fi
 }
 
