@@ -16,6 +16,7 @@ explorer=nnn
 searcher=fzf
 window_attributes_rest=20x20+10+20
 window_attributes_file_selector=20x20+10+20
+window_attributes_input_box=20x20+10+20
 
 project_directory=$(cat <<-EOF
 	$HOME/projects
@@ -35,7 +36,7 @@ programs=$(cat <<-EOF
 )
 
 usage() {
-	cat<<EOF
+	cat <<EOF
 Build an awesome dev workflow with tmux, fzf, nnn, and entr.
 usage: wfmux operation_name [-c|-config|--config config_file]
        wfmux [-h|-c|-help|-config|--help|--config]
