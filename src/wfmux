@@ -1,12 +1,32 @@
 #!/bin/sh
 
-set -ue
 set -x
+set -ue
 
 readonly program=${0##*/}
-config_file="${XDG_CONFIG_HOME:-"$HOME/.config"}"
-wfmux_config="${config_file%%/}/wfmux/wfmux.conf"
+readonly config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}"
+readonly logo=$(cat <<EOF
+                                ┌────────────
+                                │
+                                │                                            ┌───────
+                                │                             ┌───┐          │
+            ┌──┐                │                             │   │          │
+            │  │                │                             │   │          │
+            │  │           ┌────┼─────┬─────┬──────┬──┐       │   │    ┌─────┘
+            │  │     ┌─    │    │     │     │      │  │       │   │    │
+────────────┘  │     │     │    │     │     │      │  │       │   └────┼─────┐
+               │     │     │    │     │     │      │  │       │        │     │
+               │     │     │    │     │     └────  │  └───────┘        │     │
+               ├─────┴─────┘    │     │            └──                 │     │
+               │                │    ─┘                                │     │
+               │                │            ──────────────────────────┘     │
+               │                └─                                           │
+         ──────┘                                                             │
+                                                                             │
+EOF
+)
 
+wfmux_config="${config_dir%%/}/wfmux/wfmux.conf"
 use_xdg=yes
 runner=entr
 restarter=entr
@@ -68,6 +88,11 @@ main() {
 	if [ $# -eq 1 ]; then
 		case $1 in
 			push|commit|select|explore|auto|open)
+				if [ -f "$wfmux_config" ]; then
+					[ -r "$wfmux_config" ] || die "no permission to read '$wfmux_config'"
+					. $wfmux_config        || die "could not source configuration file"
+					check_config_variables
+				fi
 				eval "$1" ;;
 			-h|-help|--help)
 				usage ;;
@@ -134,19 +159,30 @@ check_config_variables() {
 	IFS=$OLD_IFS
 }
 
+dashboard() {
+	:;
+}
+
 ## select a project and open a tmux session
 open() {
 	if tmux list-sessions >/dev/null 2>&1
 	then
-		printf '%s\n' "Choose an existing session to attach"
+		printf '%s\n\n' "Choose an existing session to attach"
 		tmux list-sessions | awk '{print NR") "$0}'
 	fi
-	cat<<-EOF
+	cat<<EOF
 
-		- Enter the name of your new tmux session
-		- Enter f«return» to select and open a new project
-		- Enter «return» to drop tmux
-	EOF
+	 ┌──────────────┤ WFMUX
+	┌┴─────────────────────────────────────────────────┐
+	│                                                  │
+	├───── Input a name for a new tmux session         │
+	│                                                  │
+	├───── Input f«return» to select a project         │
+	│                                                  │
+	├───── Input «return» to drop to the terminal      │
+	│                                                  │
+	└──────────────────────────────────────────────────┘
+EOF
 	read -p "»»» " input
 	tput clear
 
