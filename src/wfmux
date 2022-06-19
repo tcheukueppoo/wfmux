@@ -3,6 +3,11 @@
 set -x
 set -ue
 
+readonly alt_screen='\033[?1049h'
+readonly normal_screen='\033[?1049l'
+readonly hide_cur='\033[?25l'
+readonly show_cur='\033[?25h'
+readonly clear_scr='\033[2J'
 readonly program=${0##*/}
 readonly config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}"
 readonly logo=$(cat <<EOF
@@ -175,12 +180,12 @@ check_config_variables() {
 
 display_dashboard() {
 	max_line="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
-	logo_h=$(printf '%s' "$logo" | wc -l)
-	logo_w=$(printf '%s' "$logo" | eval "$max_line")
 	read term_w term_h < $(stty size)
 	x=$(expr $term_h / 2 - $logo_h / 2)
 	y=$(expr $term_w / 2 - $logo_h / 2)
 
+
+	# generate help message for the dashboard
 	gen_key_helper() {
 		cat <<-EOF
 			The following are tmux bindings related to WFMUX.
@@ -194,30 +199,44 @@ display_dashboard() {
 
 	# save initial terminal setting which is to be set back after exiting dashboard
 	init_stty=$(stty -g)
+	printf '%s' "${alt_screen}${hide_cur}${clear_scr}"
 	stty -echo
 
-	while read line; do _print $x $y "$line"; y=$((y+1)); done < $(printf '%s' "$logo")
-	gen_w=$(gen_key_helper | eval "$max")
-	[ $gen_w -gt $logo_w ] &&
-	gen_x=$(expr )         ||
-	gen_x=$(expr )
-	gen_key_helper | while read line; do _print $gen_x $y "$line"; y=$((y+1)); done
+	{
+		while true; do
+			[ "$(stty size)" = "$logo_h $logo_w" ] && { sleep 0.5; continue; }
 
-	# usefull for undoing terminal device settings
-	export ON_DASHBOARD=true
+			printf '%s' "$clear_scr"
+			logo_h=$(printf '%s' "$logo" | wc -l)
+			logo_w=$(printf '%s' "$logo" | eval "$max_line")
+			gen_w=$(gen_key_helper | eval "$max")
+
+			[ $gen_w -gt $logo_w ]                         &&
+			gen_x=$(expr $x - \( $gen_w  - $logo_w \) / 2) ||
+			gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
+
+			while read line; do _print $x $y "$line"; y=$((y+1)); done < $(printf '%s' "$logo")
+			gen_key_helper | while read line; do _print $gen_x $y "$line"; y=$((y+1)); done
+		done
+	} &
+
+	# wait for an input event
+	cat /dev/tty | while read key; do
+		case "$key" in
+			q|Q) 
+		esac
+	done
 }
-
-# based on tmux keybindings configuration, generate help message
 
 ## select a project and open a tmux session
 open() {
 	tmux list-sessions >/dev/null 2>&1 && {
-		printf '%s\n\n' "Choose an existing session to attach"
+		printf 'Choose an existing session to attach\n\n'
 		tmux list-sessions | awk '{print "("NR") "$0}'
 	}
 	printf '%s\n' "$wfmux"
 	read -p "»»» " input
-	tput clear
+	printf '%s' "$clear_scr"
 
 	if expr "$input" : '^[0-9][0-9]*$'; then
 		session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
@@ -226,15 +245,14 @@ open() {
 		if [ "$input" = f -o "$input" = F ]; then
 			[ `printf '%s' "$project_directory" | wc -l` -ne 1 ] &&
 			project_directory=$(printf '%s' "$project_directory" | eval "$searcher")
-
 			[ -n "$project_directory" ] || return
 			[ -r "$project_directory" ] || return
-			project_name=$(ls -F "$project_directory" | sed -n 's#/$##p' | eval "$searcher" | tr _ '\034' | tr . _)
 
+			project_name=$(ls -F "$project_directory" | sed -n 's&/$&&p' | eval "$searcher" | tr _ '\034' | tr . _)
 			[ -z "$project_name" ] && return
 			{
-				tmux has-session -t "$project_name"    &&
-				tmux new-session -s "$project_name"    ||
+				tmux has-session    -t "$project_name" &&
+				tmux new-session    -s "$project_name" ||
 				tmux attach-session -t "$project_name"
 			} >/dev/null 2>&1
 
