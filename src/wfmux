@@ -7,10 +7,11 @@ readonly alt_screen='\033[?1049h'
 readonly normal_screen='\033[?1049l'
 readonly hide_cur='\033[?25l'
 readonly show_cur='\033[?25h'
-readonly clear_scr='\033[2J'
+readonly clear_screen='\033[2J'
 readonly program=${0##*/}
 readonly config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}"
-readonly logo=$(cat <<EOF
+
+readonly logo_ls=$(cat <<EOF
                                 ┌────────────
                                 │
                                 │                                            ┌───────
@@ -30,6 +31,22 @@ readonly logo=$(cat <<EOF
                                                                              │
 EOF
 )
+readonly logo_ms=$(cat <<EOF
+                     ┌─────                           ┌───
+                     │                                │
+        ┌─┐          │                      ┌──┐      │
+        │ │       ┌──┼───┬───┬───┬────┐     │  │  ┌───┘
+        │ │   ┌─  │  │   │   │   │    │     │  │  │
+────────┘ │   │   │  │   │   │   │    │     │  └──┼───┐
+          │   │   │  │   │   │   │    │     │     │   │
+          ├───┴───┘  │  ─┘   └─  │    └─────┘     │   │
+          │          └─          └──              │   │
+          │                              ─────────┘   │
+       ───┘                                           │
+EOF
+)
+readonly logo_ss='WFMUX'
+
 readonly wfmux=$(cat<<EOF
 
      ┌──────────────┤ WFMUX
@@ -104,6 +121,7 @@ die() {
 
 main() {
 	emessage="is an unrecognized option, please try \`$program --usage'";
+
 	if [ $# -eq 1 ]; then
 		case $1 in
 			push|commit|select|explore|auto|open)
@@ -179,10 +197,9 @@ check_config_variables() {
 }
 
 display_dashboard() {
-	max_line="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
-	read term_w term_h < $(stty size)
-	x=$(expr $term_h / 2 - $logo_h / 2)
-	y=$(expr $term_w / 2 - $logo_h / 2)
+	max="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
+	term_h=
+	term_w=
 
 
 	# generate help message for the dashboard
@@ -193,39 +210,45 @@ display_dashboard() {
 			M-$tbind_select:   fuzzyly open project files
 			M-$tbind_explorer: open file manager
 			M-$tbind_ops:      fuzzyly select other wfmux operations
+
+			press 'q' to exit dashboard
 		EOF
 	}
 	_print() { printf '\033[%s;%sf%s' "$1" "$2" "$3"; }
 
-	# save initial terminal setting which is to be set back after exiting dashboard
+	# save initial terminal setting and will be set back after exiting dashboard
 	init_stty=$(stty -g)
-	printf '%s' "${alt_screen}${hide_cur}${clear_scr}"
+	printf '%s' "${alt_screen}${hide_cur}${clear_screen}"
 	stty -echo
 
-	{
-		while true; do
-			[ "$(stty size)" = "$logo_h $logo_w" ] && { sleep 0.5; continue; }
+	while true; do
+		[ "$(stty size)" = "$term_h $term_w" ] && { sleep 0.5; continue; }
 
-			printf '%s' "$clear_scr"
-			logo_h=$(printf '%s' "$logo" | wc -l)
-			logo_w=$(printf '%s' "$logo" | eval "$max_line")
-			gen_w=$(gen_key_helper | eval "$max")
+		stty size | read term_w term_h
+		if   [ $term_h -lt 32 -o $term_w -lt 97 ]; then _size=ss
+		elif [ $term_w -le 155 ]; then _size=ms
+		else _size=ls
+		fi
 
-			[ $gen_w -gt $logo_w ]                         &&
-			gen_x=$(expr $x - \( $gen_w  - $logo_w \) / 2) ||
-			gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
+		eval 'logo_h=$(printf "%s" "$logo_'$_size'" | wc -l);
+		      logo_w=$(printf "%s" "$logo_'$_size'" | eval "$max")'
+		gen_w=$(gen_key_helper | eval "$max")
 
-			while read line; do _print $x $y "$line"; y=$((y+1)); done < $(printf '%s' "$logo")
-			gen_key_helper | while read line; do _print $gen_x $y "$line"; y=$((y+1)); done
-		done
-	} &
+		x=$(expr $term_h / 2 - $logo_h / 2)
+		y=$(expr $term_w / 2 - $logo_h / 2)
 
-	# wait for an input event
-	cat /dev/tty | while read key; do
-		case "$key" in
-			q|Q) 
-		esac
-	done
+		[ $gen_w -gt $logo_w ]                         &&
+		gen_x=$(expr $x - \( $gen_w  - $logo_w \) / 2) ||
+		gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
+
+		printf '%s' "$clear_screen"
+		eval 'printf "%s" "$logo'$_size'"' | while read line; do _print $x $y "$line"; y=$(($y+1)); done
+		gen_key_helper | while read line; do _print $gen_x $y "$line"; y=$(($y+1)); done
+	done &
+
+	# get key from standard input and translate key code into a readable format
+	responsizer=$!
+	
 }
 
 ## select a project and open a tmux session
@@ -235,14 +258,16 @@ open() {
 		tmux list-sessions | awk '{print "("NR") "$0}'
 	}
 	printf '%s\n' "$wfmux"
-	read -p "»»» " input
+	read -p "⟩⟩ " input
 	printf '%s' "$clear_scr"
 
-	if expr "$input" : '^[0-9][0-9]*$'; then
+	if expr "$input" : '^[0-9][0-9]*$'
+	then
 		session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
 		[ -n "$session_name" ] && tmux attach-session -t "$session_name"
 	else
-		if [ "$input" = f -o "$input" = F ]; then
+		if [ "$input" = f -o "$input" = F ]
+		then
 			[ `printf '%s' "$project_directory" | wc -l` -ne 1 ] &&
 			project_directory=$(printf '%s' "$project_directory" | eval "$searcher")
 			[ -n "$project_directory" ] || return
