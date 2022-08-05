@@ -94,12 +94,12 @@ programs=$(cat <<-EOF
 usage() {
 	cat <<EOF
 Build an awesome dev workflow with tmux, fzf, nnn, and entr.
-usage: wfmux operation_name [-c|-config|--config config_file]
-       wfmux [-h|-c|-help|-config|--help|--config]
+usage: wfmux [ [-c|-config|--config] *config_file* ] *operation_name*
+       wfmux [ -h | -help | --help ]
 
 Options:
      -h, -help, --help            print this help message.
-     -c, -config, --config FILE   load FILE configuration file.
+     -c, -config, --config FILE   load *FILE* configuration file.
 
 Operation names:
     open      fuzzyly select a project and open a new tmux session.
@@ -120,78 +120,70 @@ die() {
 }
 
 main() {
-	emessage="is an unrecognized option, please try \`$program --usage'";
+	operation=
+	gave_config=false
 
-	if [ $# -eq 1 ]; then
+	[ $# -eq 0 ] && usage
+	until [ $# -eq 0 ]; do
 		case $1 in
+			-h|-help|--help)
+				usage
+				;;
+			-c|-config|--config)
+				[ $# -eq 1 ] && wfmux_config=$2 || usage
+				gave_config=true
+				shift
+				;;
 			push|commit|select|explore|auto|open)
+				operation=$1
 				if [ -f "$wfmux_config" ]; then
 					[ -r "$wfmux_config" ] || die "no permission to read '$wfmux_config'"
 					. $wfmux_config        || die "could not source configuration file"
-					check_config_variables
 				fi
-				eval "$1" ;;
-			-h|-help|--help)
-				usage ;;
+				;;
 			*)
-				die "$1" "$emessage" ;;
+				die "'$1' is an unrecognized option, please try \`$program --help'"
+				;;
 		esac
-	elif [ $# -eq 3 ]; then
-		case $1 in
-			push|commit|select|explore|auto|open)
-				case $2 in
-					-c|-config|--config)
-						wfmux_config=$3
-						[ -e "$wfmux_config" ] || die "'$wfmux_config' does not exist"
-						[ -r "$wfmux_config" ] || die "no permission to read '$wfmux_config'"
-						. $wfmux_config        || die "could not source configuration file"
-						check_config_variables
-						eval "$1" ;;
-					*)
-						die "$2" "$emessage" ;;
-				esac ;;
-			*)
-				die "$1" "$emessage" ;;
-		esac
-	else
-		die "invalid option count, please try \`$program --usage'"
-	fi
+		shift
+	done
+	[ $gave_config = true ] && check_config_variables
+	eval "$operation"
 }
 
 ## Check if variables are unset or null	and if set then
 ## check if the data is somehow our expectation.
-## We won't have to rely on `set -u`, we would want to output an error
-## message if one of these variables aren't set/sane.
+## we won't have to rely on `set -u`, we would want to output a custom 
+## error message if one of these variables aren't set/sane.
 check_config_variables() {
-	emessage="$program: ('$config_file'): "
-	window_regex='^[[:digit:]]+x[[:digit:]]+\+[[:digit:]]+\+[[:digit:]]+$'
+	_error="$program: ('$config_file'):"
 
-	for parameter in use_xdg automater searcher explorer window_attributes_rest \
-	                 window_attributes_file_selector project_directory; do
-		eval "parameter=\${$parameter:-NaN}"
-		[ "$parameter" = NaN ] && die "$emessage" "'$parameter' isn't set"
-	done
-	
-	## check for sane values
-	(
-		{ who=window_attributes_rest; printf '%s' "$window_attributes_rest" | grep -Eq "$window_regex"; }                   &&
-		{ who=window_attributes_file_selector; printf '%s' "$window_attributes_file_selector" | grep -Eq "$window_regex"; } &&
-		{ who=use_xdg; printf '%s' "$use_xdg" | grep -Eq '^true|false$'; }
-	) || die "$emessage" "content of '$who' isn't valid"
-
-	# now we should expect executable binaries/sh-functions/aliases
-	OLD_IFS=$IFS; IFS=$':'
-	for dependency in explorer automater searcher; do
-		found=false
-		for bin_dir in $PATH; do [ -x "${bin_dir%%/}/$dependency" ] && { found=true; break; }; done
-		[ $found = false ] && die "$emessage" "'$dependency' isn't found"
+	for parameter in use_xdg searcher explorer window_attributes_rest tbind_ops dash_color \
+	                 window_attributes_file_selector project_directory tbind_select tbind_explore    \
+					 window_attributes_input_box runner restarter; do
+		eval "parameter=\${$parameter:-UNSET}"
+		[ "$parameter" = UNSET ] && die "$_error '$parameter' isn't set"
 	done
 
-	# check if project dirs exist and are readable
-	IFS=$'\n'
-	for dir in $project_directory; do
-		[ -d "$dir" ] || die "$emessage" "'$dir' isn't a directory"
-		[ -r "$dir" ] || die "$emessage" "cannot list content of '$dir'"
+	## check if we got sane values
+	config_die() { die "$_error content of \`$1' is not valid"; }
+	window_regex='[[:digit:]]+x[[:digit:]]+\+[[:digit:]]+\+[[:digit:]]+$'
+	{
+		expr "$window_attributes_rest"          : "$window_regex" || config_die window_attributes_rest
+		expr "$window_attributes_file_selector" : "$window_regex" || config_die window_attributes_file_selector
+		expr "$window_attributes_input_box"     : "$window_regex" || config_die window_attributes_input_box
+		expr "$use_xdg"                         : 'yes|no$'       || config_die use_xdg
+		expr "$dash_color"                      : '[0-9]$'        || config_die dash_color
+	} >/dev/null
+
+	for cv in explorer runner restarter searcher; do
+		command -v `eval "printf '%s'" "\$$cv"` || die "$error_ '$cv' not found"
+	done
+
+	OLD_IFS=$IFS; IFS=$'\n'
+	for cv in $project_directory; do
+		[ -d "$cv" ] || die "$_error '$cv' is not a directory"
+		[ -r "$cv" ] || die "$_error cannot list content of '$cv'"
 	done
 	IFS=$OLD_IFS
 }
