@@ -203,57 +203,63 @@ display_dashboard() {
 			M-$tbind_explorer: open file manager
 			M-$tbind_ops:      fuzzyly select other wfmux operations
 
-			press 'q' to exit dashboard
+			input any key to exit dashboard
 		EOF
 	}
 	_print() { printf '\033[%s;%sf%s' "$1" "$2" "$3"; }
 
-	# save initial terminal setting and will be set back after exiting dashboard
+	# save initial terminal setting and will set it back after exiting dashboard
 	init_stty=$(stty -g)
+	stty -cooked -echo time 0 min 1
 	printf '%s' "${alt_screen}${hide_cur}${clear_screen}"
-	stty -echo
 
-	while true; do
-		[ "$(stty size)" = "$term_h $term_w" ] && { sleep 0.5; continue; }
+	(
+		while true; do
+			[ "$(stty size)" = "$term_h $term_w" ] && { sleep 1; continue; }
 
-		stty size | read term_w term_h
-		if   [ $term_h -lt 32 -o $term_w -lt 97 ]; then _size=ss
-		elif [ $term_w -le 155 ]; then _size=ms
-		else _size=ls
-		fi
+			stty size | read term_w term_h
+			if   [ $term_h -lt 32 -o $term_w -lt 97  ]; then _size=ss
+			elif [ $term_h -lt 43 -o $term_w -lt 155 ]; then _size=ms
+			else                                             _size=ls
+			fi
 
-		eval 'logo_h=$(printf "%s" "$logo_'$_size'" | wc -l);
-		      logo_w=$(printf "%s" "$logo_'$_size'" | eval "$max")'
-		gen_w=$(gen_key_helper | eval "$max")
+			eval 'logo_h=$(printf "%s" "$logo_'$_size'" | wc -l);
+				  logo_w=$(printf "%s" "$logo_'$_size'" | eval "$max")'
+			logo_h=$(expr $logo_h + `gen_key_helper | wc -l`)
+			gen_w=$(gen_key_helper | eval "$max")
 
-		x=$(expr $term_h / 2 - $logo_h / 2)
-		y=$(expr $term_w / 2 - $logo_h / 2)
+			x=$(expr $term_h / 2 - $logo_h / 2)
+			y=$(expr $term_w / 2 - $logo_w / 2)
 
-		[ $gen_w -gt $logo_w ]                         &&
-		gen_x=$(expr $x - \( $gen_w  - $logo_w \) / 2) ||
-		gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
+			[ $gen_w -gt $logo_w ]                         &&
+			gen_x=$(expr $x - \( $gen_w  - $logo_w \) / 2) ||
+			gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
 
-		printf '%s' "$clear_screen"
-		eval 'printf "%s" "$logo'$_size'"' | while read line; do _print $x $y "$line"; y=$(($y+1)); done
-		gen_key_helper | while read line; do _print $gen_x $y "$line"; y=$(($y+1)); done
-	done &
+			printf '%s' "$clear_screen"
+			eval 'printf "%s" "$logo'$_size'"' | while read line; do _print $x $y "$line"; y=$(($y+1)); done
+			gen_key_helper | while read line; do _print $gen_x $y "$line"; y=$(($y+1)); done
+		done
+	) &
 
-	# get key from standard input and translate key code into a readable format
 	responsizer=$!
-	
+	# get key from standard input
+	dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
+	kill -SIGKILL "$responsizer"
+	stty "$init_stty"
+	printf '%s' "$clear_screen"
 }
 
 ## select a project and open a tmux session
 open() {
 	tmux list-sessions >/dev/null 2>&1 && {
-		printf 'Choose an existing session to attach\n\n'
+		printf "Choose an existing session to attach\n\n"
 		tmux list-sessions | awk '{print "("NR") "$0}'
 	}
 	printf '%s\n' "$wfmux"
 	read -p "⟩⟩ " input
-	printf '%s' "$clear_scr"
+	printf '%s' "$clear_screen"
 
-	if expr "$input" : '^[0-9][0-9]*$'
+	if expr "$input" : '[0-9][0-9]*$'
 	then
 		session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
 		[ -n "$session_name" ] && tmux attach-session -t "$session_name"
