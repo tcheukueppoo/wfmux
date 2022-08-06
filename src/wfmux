@@ -1,7 +1,7 @@
 #!/bin/sh
 
-set -x
-set -ue
+#set -x
+#set -ue
 
 readonly alt_screen='\033[?1049h'
 readonly normal_screen='\033[?1049l'
@@ -10,6 +10,7 @@ readonly show_cur='\033[?25h'
 readonly clear_screen='\033[2J'
 readonly program=${0##*/}
 readonly config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}"
+readonly profiles="${config_dir%%/}/wfmux/profiles"
 
 readonly logo_ls=$(cat <<EOF
                                 ┌────────────
@@ -54,9 +55,9 @@ readonly wfmux=$(cat<<EOF
     │                                                  │
     ├───── Input a name for a new tmux session         │
     │                                                  │
-    ├───── Input f«return» to select a project         │
+    ├───── Input f⟨return⟩ to select a project         │
     │                                                  │
-    ├───── Input «return» to drop to the terminal      │
+    ├───── Input ⟨return⟩ to drop to the terminal      │
     │                                                  │
     └──────────────────────────────────────────────────┘
 EOF
@@ -65,14 +66,16 @@ EOF
 wfmux_config="${config_dir%%/}/wfmux/wfmux.conf"
 use_xdg=yes
 runner=entr
-restarter=entr
-restarter_templates="$HOME/.config/wfmux/stemplate"
 runner_templates="$HOME/.config/wfmux/rtemplate"
+dash_color=4
 explorer=nnn
 searcher=fzf
 window_attributes_rest=20x20+10+20
 window_attributes_file_selector=20x20+10+20
 window_attributes_input_box=20x20+10+20
+tbind_ops=nan
+tbind_explorer=nan
+tbind_select=nan
 
 project_directory=$(cat <<-EOF
 	$HOME/projects
@@ -103,7 +106,7 @@ Options:
 
 Operation names:
     open      fuzzyly select a project and open a new tmux session.
-    auto      select set of files to watch and bind them to a commmand.
+	runner    
     explore   open your favorite file manager on a popup tmux pane.
     select    fuzzyly select a file to open provided that they exist
               a recently used tmux session which carries the name of your
@@ -112,6 +115,7 @@ Operation names:
     push      push to the preconfigured remote repositories.
 	switch    fuzzyly switch between branches of your local repository.
 EOF
+	exit $1
 }
 
 die() {
@@ -123,14 +127,14 @@ main() {
 	operation=
 	gave_config=false
 
-	[ $# -eq 0 ] && usage
+	[ $# -eq 0 ] && usage 1
 	until [ $# -eq 0 ]; do
 		case $1 in
 			-h|-help|--help)
-				usage
+				usage 0
 				;;
 			-c|-config|--config)
-				[ $# -eq 1 ] && wfmux_config=$2 || usage
+				[ $# -eq 1 ] && wfmux_config=$2 || usage 1
 				gave_config=true
 				shift
 				;;
@@ -159,8 +163,8 @@ check_config_variables() {
 	_error="$program: ('$config_file'):"
 
 	for parameter in use_xdg searcher explorer window_attributes_rest tbind_ops dash_color \
-	                 window_attributes_file_selector project_directory tbind_select tbind_explore    \
-					 window_attributes_input_box runner restarter; do
+	                 window_attributes_file_selector project_directory tbind_select tbind_explore \
+					 window_attributes_input_box runner; do
 		eval "parameter=\${$parameter:-UNSET}"
 		[ "$parameter" = UNSET ] && die "$_error '$parameter' isn't set"
 	done
@@ -176,7 +180,7 @@ check_config_variables() {
 		expr "$dash_color"                      : '[0-9]$'        || config_die dash_color
 	} >/dev/null
 
-	for cv in explorer runner restarter searcher; do
+	for cv in explorer runner searcher; do
 		command -v `eval "printf '%s'" "\$$cv"` || die "$error_ '$cv' not found"
 	done
 
@@ -189,35 +193,37 @@ check_config_variables() {
 }
 
 display_dashboard() {
-	max="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
 	term_h=
 	term_w=
-
+	no_color="\033[0m"
+	put_color="\033[3${dash_color}m"
+	max="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
 
 	# generate help message for the dashboard
 	gen_key_helper() {
 		cat <<-EOF
 			The following are tmux bindings related to WFMUX.
 
-			M-$tbind_select:   fuzzyly open project files
+			M-$tbind_select: fuzzyly open project files
 			M-$tbind_explorer: open file manager
-			M-$tbind_ops:      fuzzyly select other wfmux operations
+			M-$tbind_ops: fuzzyly select other wfmux operations
 
 			input any key to exit dashboard
 		EOF
 	}
-	_print() { printf '\033[%s;%sf%s' "$1" "$2" "$3"; }
+	_print() { printf "\033[$1;$2f$3" >/dev/tty; }
 
 	# save initial terminal setting and will set it back after exiting dashboard
 	init_stty=$(stty -g)
 	stty -cooked -echo time 0 min 1
-	printf '%s' "${alt_screen}${hide_cur}${clear_screen}"
+	printf "${alt_screen}${hide_cur}${clear_screen}${put_color}"
 
 	(
 		while true; do
-			[ "$(stty size)" = "$term_h $term_w" ] && { sleep 1; continue; }
+			[ "$(stty -F /dev/tty size)" = "$term_h $term_w" ] && { sleep 2; continue; }
 
-			stty size | read term_w term_h
+			term_h=$(stty -F /dev/tty size | cut -d' ' -f1)
+			term_w=$(stty -F /dev/tty size | cut -d' ' -f2)
 			if   [ $term_h -lt 32 -o $term_w -lt 97  ]; then _size=ss
 			elif [ $term_h -lt 43 -o $term_w -lt 155 ]; then _size=ms
 			else                                             _size=ls
@@ -225,60 +231,89 @@ display_dashboard() {
 
 			eval 'logo_h=$(printf "%s" "$logo_'$_size'" | wc -l);
 				  logo_w=$(printf "%s" "$logo_'$_size'" | eval "$max")'
+
 			logo_h=$(expr $logo_h + `gen_key_helper | wc -l`)
 			gen_w=$(gen_key_helper | eval "$max")
 
-			x=$(expr $term_h / 2 - $logo_h / 2)
-			y=$(expr $term_w / 2 - $logo_w / 2)
+			x=$(expr $term_w / 2 - $logo_w / 2)
+			y=$(expr $term_h / 2 - $logo_h / 2)
 
 			[ $gen_w -gt $logo_w ]                         &&
 			gen_x=$(expr $x - \( $gen_w  - $logo_w \) / 2) ||
 			gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
 
-			printf '%s' "$clear_screen"
-			eval 'printf "%s" "$logo'$_size'"' | while read line; do _print $x $y "$line"; y=$(($y+1)); done
-			gen_key_helper | while read line; do _print $gen_x $y "$line"; y=$(($y+1)); done
+			printf "$clear_screen"
+			eval 'printf "%s" "$logo_'$_size'"' | {
+				while read line; do _print $y $x "$line"; y=$(($y+1)); done
+				gen_key_helper | while read line; do _print $y $gen_x "$line"; y=$(($y+1)); done
+			}
 		done
 	) &
 
-	responsizer=$!
 	# get key from standard input
 	dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
-	kill -SIGKILL "$responsizer"
+	kill -SIGKILL $! || : "could exit due to set -e"
 	stty "$init_stty"
-	printf '%s' "$clear_screen"
+	printf "${no_color}${show_cur}"
+	tput clear
 }
 
 ## select a project and open a tmux session
+## refer to usage() function for more information
 open() {
-	tmux list-sessions >/dev/null 2>&1 && {
-		printf "Choose an existing session to attach\n\n"
-		tmux list-sessions | awk '{print "("NR") "$0}'
-	}
+	if tmux list-sessions >/dev/null 2>&1; then
+		printf 'Choose an existing session to attach\n\n'
+		tmux list-sessions | awk '{print "["NR"] "$0}'
+	fi
 	printf '%s\n' "$wfmux"
-	read -p "⟩⟩ " input
-	printf '%s' "$clear_screen"
+	read -p '⟩⟩ ' input
+	tput clear
 
-	if expr "$input" : '[0-9][0-9]*$'
+	if [ -n "$(expr "$input" : '\([0-9][0-9]*\)$')" ]
 	then
 		session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
 		[ -n "$session_name" ] && tmux attach-session -t "$session_name"
 	else
-		if [ "$input" = f -o "$input" = F ]
+		if [ -n "$(expr "$input" : '\(F\|f\)$')" ]
 		then
-			[ `printf '%s' "$project_directory" | wc -l` -ne 1 ] &&
-			project_directory=$(printf '%s' "$project_directory" | eval "$searcher")
+			if [ `printf '%s' "$project_directory" | wc -l` -ne 1 ]
+			then
+				project_directory=$( printf '%s' "$project_directory" | eval "$searcher" )
+			fi
 			[ -n "$project_directory" ] || return
 			[ -r "$project_directory" ] || return
 
-			project_name=$(ls -F "$project_directory" | sed -n 's&/$&&p' | eval "$searcher" | tr _ '\034' | tr . _)
+			project_list=$(
+			                IFS=$'\n'; 
+			                find $project_directory \
+                               -mindepth 2          \
+							   -type d              \
+							   -iname '.git'        \
+							   -exec  expr '{}' : '\(.*\)/.git$' \;
+			              )
+			project_name=$(
+			                printf '%s' "$project_list" | 
+							sed -nE 's,^.*/(.*)$,\1,p'  |
+							awk '{ print "["NR"]:"$0 }' |
+			                eval "$searcher"            |
+			                tr _ '\034'                 |
+			                tr . _
+			              )
 			[ -z "$project_name" ] && return
-			{
-				tmux has-session    -t "$project_name" &&
-				tmux new-session    -s "$project_name" ||
-				tmux attach-session -t "$project_name"
-			} >/dev/null 2>&1
 
+			session_name="wfmux-${project_name##\[*\]:}"
+			{
+				if ! tmux has-session -t "$session_name"; then
+					#(
+						# setup runners
+					#) &
+					display_dashboard
+					tmux new-session -s "$session_name"
+					# start the watchers
+				else
+					tmux attach-session -t "$session_name"
+				fi
+			} 2>/dev/null
 		elif [ -z "$input" ]; then return
 		else
 			tmux new-session -s "$(printf '%s' "$input" | tr _ '\034' | tr . _)"
@@ -287,8 +322,11 @@ open() {
 }
 
 ## select your project files to open
-select() {
-	:;
-}
+select()   { :; }
+explorer() { :; }
+switch()   { :; }
+commit()   { :; }
+runner()   { :; }
+
 
 main "$@"
