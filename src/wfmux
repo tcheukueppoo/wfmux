@@ -8,9 +8,13 @@ readonly normal_screen='\033[?1049l'
 readonly hide_cur='\033[?25l'
 readonly show_cur='\033[?25h'
 readonly clear_screen='\033[2J'
+readonly bold='\033[1m'
+readonly off='\033[0m'
 readonly program=${0##*/}
 readonly config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}"
 readonly profiles="${config_dir%%/}/wfmux/profiles"
+readonly cachedir="${XDG_CACHE_HOME:-"$HOME/.cache"}"
+readonly cache="${cachedir%%/}/wfmux"
 
 readonly logo_ls=$(cat <<EOF
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx┌────────────
@@ -151,7 +155,8 @@ main() {
 		esac
 		shift
 	done
-	[ $gave_config = true ] && check_config_variables
+	## [ $gave_config = true ] && 
+	#check_config_variables
 	eval "$operation"
 }
 
@@ -215,7 +220,7 @@ display_dashboard() {
 	# save initial terminal setting and will set it back after exiting dashboard
 	init_stty=$(stty -g)
 	stty -cooked -echo time 0 min 1
-	printf "${alt_screen}${hide_cur}${clear_screen}${put_color}"
+	printf "${alt_screen}${hide_cur}${clear_screen}${put_color}${bold}"
 
 	(
 		while true; do
@@ -243,8 +248,15 @@ display_dashboard() {
 
 			printf "$clear_screen"
 			eval 'printf "%s" "$logo_'$_size'"' | {
-				while read line; do _print $y $x "$(printf "$line" | tr 'x' ' ')"; y=$(($y+1)); done
-				gen_key_helper | while read line; do _print $y $gen_x "$(printf "$line" | tr 'x' ' ')"; y=$(($y+1)); done
+				while read line; do
+					_print $y $x "$(printf "$line" | tr 'x' ' ')"
+					y=$(($y+1))
+				done
+				printf "$off"
+				gen_key_helper | while read line; do
+					_print $y $gen_x "$line"
+					y=$(($y+1))
+				done
 			}
 		done
 	) &
@@ -275,24 +287,33 @@ open() {
 	else
 		if [ -n "$(expr "$input" : '\(F\|f\)$')" ]
 		then
+			ran_find=
+			must_find=false
+
+			find_git_repos() { find "$1" -mindepth 2 -type d -iname '.git' -exec expr '{}' : '\(.*\)/.git$' \;; }
 			project_list=$(
-							# IFS=$'\n' won't expand '\n' on dash, thus `for i in $pro...' or a simple `$pro..` might not work as intended
-							printf '%s' "$project_directory" | while read p; do
-								find "$p"        \
-								   -mindepth 2   \
-								   -type d       \
-								   -iname ".git" \
-								   -exec  expr "{}" : "\(.*\)/.git$" \; || :
-						   done
-			              )
+				printf '%s' "$project_directory" | {
+					while read p; do
+						[ "$p" -nt "$cache" ] && must_find=true
+						$must_find || { set -- "$@" "$p"; continue }
+						find_git_repos "$p" | tee ${ran_find--a} "$cache"
+						unset ran_find
+					done
+					if $must_find; then # go through the rest
+						for p in "$@"; do find_git_repos "$p" | tee -a "$cache"; done
+					fi
+				}
+			)
+			[ -z "$project_list" ] && project_list=$(cat "$cache")
+
 			project_name=$(
-			                printf '%s' "$project_list" | 
-							sed -nE 's,^.*/(.*)$,\1,p'  |
-							awk '{print "["NR"]:"$0}'   |
-			                eval "$searcher"            |
-			                tr _ '\034'                 |
-			                tr . _
-			              )
+			    printf '%s' "$project_list" | 
+				sed -nE 's,^.*/(.*)$,\1,p'  |
+				awk '{print "["NR"]:"$0}'   |
+			    eval "$searcher"            |
+			    tr _ '\034'                 |
+			    tr . _
+			)
 			[ -z "$project_name" ] && return
 
 			session_name="wfmux-${project_name##\[*\]:}"
