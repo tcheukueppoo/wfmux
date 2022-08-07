@@ -1,7 +1,7 @@
 #!/bin/sh
 
 #set -x
-#set -ue
+set -ue
 
 readonly alt_screen='\033[?1049h'
 readonly normal_screen='\033[?1049l'
@@ -13,37 +13,37 @@ readonly config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}"
 readonly profiles="${config_dir%%/}/wfmux/profiles"
 
 readonly logo_ls=$(cat <<EOF
-                                ┌────────────
-                                │
-                                │                                            ┌───────
-                                │                             ┌───┐          │
-            ┌──┐                │                             │   │          │
-            │  │                │                             │   │          │
-            │  │           ┌────┼─────┬─────┬──────┬──┐       │   │    ┌─────┘
-            │  │     ┌─    │    │     │     │      │  │       │   │    │
-────────────┘  │     │     │    │     │     │      │  │       │   └────┼─────┐
-               │     │     │    │     │     │      │  │       │        │     │
-               │     │     │    │     │     └────  │  └───────┘        │     │
-               ├─────┴─────┘    │     │            └──                 │     │
-               │                │    ─┘                                │     │
-               │                │            ──────────────────────────┘     │
-               │                └─                                           │
-         ──────┘                                                             │
-                                                                             │
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx┌────────────
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx┌───────
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxxxxxxxxx┌───┐xxxxxxxxxx│
+xxxxxxxxxxxx┌──┐xxxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxxxxxxxxx│xxx│xxxxxxxxxx│
+xxxxxxxxxxxx│xx│xxxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxxxxxxxxx│xxx│xxxxxxxxxx│
+xxxxxxxxxxxx│xx│xxxxxxxxxxx┌────┼─────┬─────┬──────┬──┐xxxxxxx│xxx│xxxx┌─────┘
+xxxxxxxxxxxx│xx│xxxxx┌─xxxx│xxxx│xxxxx│xxxxx│xxxxxx│xx│xxxxxxx│xxx│xxxx│
+────────────┘xx│xxxxx│xxxxx│xxxx│xxxxx│xxxxx│xxxxxx│xx│xxxxxxx│xxx└────┼─────┐
+xxxxxxxxxxxxxxx│xxxxx│xxxxx│xxxx│xxxxx│xxxxx│xxxxxx│xx│xxxxxxx│xxxxxxxx│xxxxx│
+xxxxxxxxxxxxxxx│xxxxx│xxxxx│xxxx│xxxxx│xxxxx└────xx│xx└───────┘xxxxxxxx│xxxxx│
+xxxxxxxxxxxxxxx├─────┴─────┘xxxx│xxxxx│xxxxxxxxxxxx└──xxxxxxxxxxxxxxxxx│xxxxx│
+xxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxx│xxxx─┘xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│xxxxx│
+xxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxx│xxxxxxxxxxxx──────────────────────────┘xxxxx│
+xxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxx└─xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│
+xxxxxxxxx──────┘xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│
+xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│
 EOF
 )
 readonly logo_ms=$(cat <<EOF
-                     ┌─────                           ┌───
-                     │                                │
-        ┌─┐          │                      ┌──┐      │
-        │ │       ┌──┼───┬───┬───┬────┐     │  │  ┌───┘
-        │ │   ┌─  │  │   │   │   │    │     │  │  │
-────────┘ │   │   │  │   │   │   │    │     │  └──┼───┐
-          │   │   │  │   │   │   │    │     │     │   │
-          ├───┴───┘  │  ─┘   └─  │    └─────┘     │   │
-          │          └─          └──              │   │
-          │                              ─────────┘   │
-       ───┘                                           │
+xxxxxxxxxxxxxxxxxxxxx┌─────xxxxxxxxxxxxxxxxxxxxxxxxxxx┌───
+xxxxxxxxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│
+xxxxxxxx┌─┐xxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxx┌──┐xxxxxx│
+xxxxxxxx│x│xxxxxxx┌──┼───┬───┬───┬────┐xxxxx│xx│xx┌───┘
+xxxxxxxx│x│xxx┌─xx│xx│xxx│xxx│xxx│xxxx│xxxxx│xx│xx│
+────────┘x│xxx│xxx│xx│xxx│xxx│xxx│xxxx│xxxxx│xx└──┼───┐
+xxxxxxxxxx│xxx│xxx│xx│xxx│xxx│xxx│xxxx│xxxxx│xxxxx│xxx│
+xxxxxxxxxx├───┴───┘xx│xx─┘xxx└─xx│xxxx└─────┘xxxxx│xxx│
+xxxxxxxxxx│xxxxxxxxxx└─xxxxxxxxxx└──xxxxxxxxxxxxxx│xxx│
+xxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx─────────┘xxx│
+xxxxxxx───┘xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│
 EOF
 )
 readonly logo_ss='WFMUX'
@@ -69,7 +69,7 @@ runner=entr
 runner_templates="$HOME/.config/wfmux/rtemplate"
 dash_color=4
 explorer=nnn
-searcher=fzf
+searcher='fzf --multi --border=bottom --margin=25%'
 window_attributes_rest=20x20+10+20
 window_attributes_file_selector=20x20+10+20
 window_attributes_input_box=20x20+10+20
@@ -101,12 +101,12 @@ usage: wfmux [ [-c|-config|--config] *config_file* ] *operation_name*
        wfmux [ -h | -help | --help ]
 
 Options:
-     -h, -help, --help            print this help message.
-     -c, -config, --config FILE   load *FILE* configuration file.
+     -h, -help, --help             print this help message.
+     -c, -config, --config *FILE*  load *FILE* configuration file.
 
 Operation names:
     open      fuzzyly select a project and open a new tmux session.
-	runner    
+	runner    set commands to run when files change.
     explore   open your favorite file manager on a popup tmux pane.
     select    fuzzyly select a file to open provided that they exist
               a recently used tmux session which carries the name of your
@@ -184,12 +184,11 @@ check_config_variables() {
 		command -v `eval "printf '%s'" "\$$cv"` || die "$error_ '$cv' not found"
 	done
 
-	OLD_IFS=$IFS; IFS=$'\n'
-	for cv in $project_directory; do
+	# IFS=$'\n' won't expand '\n' on dash, thus `for i in $pro...' or a simple `$pro..` might not work as intended
+	printf '%s' "$project_directory" | while read cv; do
 		[ -d "$cv" ] || die "$_error '$cv' is not a directory"
 		[ -r "$cv" ] || die "$_error cannot list content of '$cv'"
 	done
-	IFS=$OLD_IFS
 }
 
 display_dashboard() {
@@ -244,8 +243,8 @@ display_dashboard() {
 
 			printf "$clear_screen"
 			eval 'printf "%s" "$logo_'$_size'"' | {
-				while read line; do _print $y $x "$line"; y=$(($y+1)); done
-				gen_key_helper | while read line; do _print $y $gen_x "$line"; y=$(($y+1)); done
+				while read line; do _print $y $x "$(printf "$line" | tr 'x' ' ')"; y=$(($y+1)); done
+				gen_key_helper | while read line; do _print $y $gen_x "$(printf "$line" | tr 'x' ' ')"; y=$(($y+1)); done
 			}
 		done
 	) &
@@ -276,25 +275,20 @@ open() {
 	else
 		if [ -n "$(expr "$input" : '\(F\|f\)$')" ]
 		then
-			if [ `printf '%s' "$project_directory" | wc -l` -ne 1 ]
-			then
-				project_directory=$( printf '%s' "$project_directory" | eval "$searcher" )
-			fi
-			[ -n "$project_directory" ] || return
-			[ -r "$project_directory" ] || return
-
 			project_list=$(
-			                IFS=$'\n'; 
-			                find $project_directory \
-                               -mindepth 2          \
-							   -type d              \
-							   -iname '.git'        \
-							   -exec  expr '{}' : '\(.*\)/.git$' \;
+							# IFS=$'\n' won't expand '\n' on dash, thus `for i in $pro...' or a simple `$pro..` might not work as intended
+							printf '%s' "$project_directory" | while read p; do
+								find "$p"        \
+								   -mindepth 2   \
+								   -type d       \
+								   -iname ".git" \
+								   -exec  expr "{}" : "\(.*\)/.git$" \; || :
+						   done
 			              )
 			project_name=$(
 			                printf '%s' "$project_list" | 
 							sed -nE 's,^.*/(.*)$,\1,p'  |
-							awk '{ print "["NR"]:"$0 }' |
+							awk '{print "["NR"]:"$0}'   |
 			                eval "$searcher"            |
 			                tr _ '\034'                 |
 			                tr . _
@@ -304,12 +298,8 @@ open() {
 			session_name="wfmux-${project_name##\[*\]:}"
 			{
 				if ! tmux has-session -t "$session_name"; then
-					#(
-						# setup runners
-					#) &
 					display_dashboard
 					tmux new-session -s "$session_name"
-					# start the watchers
 				else
 					tmux attach-session -t "$session_name"
 				fi
