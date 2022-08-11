@@ -13,8 +13,9 @@ readonly off='\033[0m'
 readonly program=${0##*/}
 readonly config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}"
 readonly profiles="${config_dir%%/}/wfmux/profiles"
-readonly cachedir="${XDG_CACHE_HOME:-"$HOME/.cache"}"
-readonly cache="${cachedir%%/}/wfmux"
+readonly cache_dir="${XDG_CACHE_HOME:-"$HOME/.cache"}"
+readonly cache="${cache_dir%%/}/wfmux"
+readonly session_dir="${config_dir%%/}wfmux/sessions"
 
 readonly logo_ls=$(cat <<EOF
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx┌────────────
@@ -289,13 +290,16 @@ open() {
 		then
 			ran_find=
 			must_find=false
+			##### changing timestamp for $cache will always make `[ "$p" -nt "$cache" ]' yield true
+			[ -e "$cache" ] || touch "$cache"
 
 			find_git_repos() { find "$1" -mindepth 2 -type d -iname '.git' -exec expr '{}' : '\(.*\)/.git$' \;; }
+
 			project_list=$(
 				printf '%s' "$project_directory" | {
 					while read p; do
 						[ "$p" -nt "$cache" ] && must_find=true
-						$must_find || { set -- "$@" "$p"; continue }
+						$must_find || { set -- "$@" "$p"; continue; }
 						find_git_repos "$p" | tee ${ran_find--a} "$cache"
 						unset ran_find
 					done
@@ -316,10 +320,11 @@ open() {
 			)
 			[ -z "$project_name" ] && return
 
-			session_name="wfmux-${project_name##\[*\]:}"
+			session_name="$(printf '%s' "$project_list" | sed "$(expr "$program_name" : '\[\([0-9]\+\)\]:.*$')p" | tr '/' '-')"
 			{
 				if ! tmux has-session -t "$session_name"; then
 					display_dashboard
+					[ -d "$session_dir/$session_name" ] || { set_up_session_and_start_watchers "$session_name"&; }
 					tmux new-session -s "$session_name"
 				else
 					tmux attach-session -t "$session_name"
@@ -330,6 +335,12 @@ open() {
 			tmux new-session -s "$(printf '%s' "$input" | tr _ '\034' | tr . _)"
 		fi
 	fi
+}
+
+set_up_session_and_start_watchers() {
+	session_name=$1
+
+
 }
 
 ## select your project files to open
