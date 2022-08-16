@@ -384,12 +384,13 @@ func_open() {
 			)
 			[ -z "$project_name" ] && return
 
-			session_name="$(printf "$project_list" | sed -n "$(expr "$project_name" : '\[\([0-9]\+\)\]:.*$')p" | tr / - | encode_dots)"
+			project_dir="$(printf "$project_list" | sed -n "$(expr "$project_name" : '\[\([0-9]\+\)\]:.*$')p" | encode_dots)"
+			session_name="$(printf "$project_dir" | tr / -)"
 			{
 				if ! tmux has-session -t "$session_name"
 				then
 					display_dashboard
-					[ -d "$session_dir/$session_name" ] || { set_up_session_and_start_watchers "$session_name"& }
+					setup_session "$project_dir" "$session_name"&
 					tmux new-session -s "$session_name"
 				else
 					# Assume the watchers have already been started and attach the session to the controlling terminal
@@ -398,20 +399,33 @@ func_open() {
 			} 2>/dev/null
 		elif [ -z "$input" ]
 		then
-			return
+			return 0
 		else
-			tmux new-session -s "$(printf "$input" | encode_dots )"
+			tmux new-session -s "$(printf "$input" | encode_dots)"
 		fi
 	fi
 }
 
-set_up_session_and_start_watchers() {
-	session_name="$1"
+setup_session() {
+	local project_dir="$1"
+	local project_session="$session_dir/$2"
+	local watch_config="$session_dir/$2/watch"
 
+	if [ -f "$watch_config" ]
+	then
+		for i in `cat "$watch_config" | sed -n 's/^s:\[\(.*\)\].*/\1/p'`
+		do
+			fifo="$project_session/${i}_fifo"
+			nohup wxwatch "$runner" "$i" "$watch_config" >"$fifo"
+		done
+	fi
+
+	mkdir -p "$session_config"
 }
 
 set_whxy() {
-	window_attributes=$1
+	local window_attributes="$1"
+
 	y="$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)$/\1/')"
 	x="$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)+.*/\1/')"
 	w="$(printf "$window_attributes" | sed -e 's/^\([0-9]\+\)x.*/\1/')"
@@ -478,7 +492,7 @@ func_select() {
 			if [ $? = 0 -a -n "$mime_type" ]
 			then
 				program="$(printf "$programs" | sed -ne "s/^${mime_type%/*}:[[:space:]]*\([^[:space:]]*\)/\1/p")"
-				if which "$program" &>/dev/null
+				if which "$program" >/dev/null 2>&1
 				then
 					printf "$program '$file'"
 				fi

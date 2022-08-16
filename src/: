@@ -1,0 +1,7 @@
+#!/bin/sh
+
+watch_files() {
+	boom=$(cat "$watch_config" | sed -n 's/^\[.*\]: \(.*\)/\1/p')
+	
+}
+

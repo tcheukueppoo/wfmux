@@ -1,0 +1,51 @@
+#!/bin/sh
+
+PM="${0##*/}"
+
+if [ $# -ne 2 ]; then
+	printf "usage: $PM <watcher_name> <watch_config>" >&2
+	exit 1
+fi
+
+runner="$1"
+watcher_name="$2"
+watch_config="$3"
+
+if which "$runner" >/dev/null 2>&1; then
+	printf "%s: command '%s' not found\n" "$PM" "$runner" >&2
+fi
+
+if [ ! -f "$watch_config" ]; then
+	printf "%s: %s: is an invalid file\n" "$PM" "$watch_config" >&2
+	exit 1
+fi
+
+if [ ! -e "$watch_config" ]; then
+	printf "%s: %s: does not exist\n" "$PM" "$watch_config" >&2
+	exit 1
+fi
+
+if [ ! -r "$watch_config" ]; then
+	printf "%s: %s: has no read permission\n" "$PM" "$watch_config" >&2
+	exit 1
+fi
+
+cmd=`cat "$watch_config" | sed -n "s/^s:\[$watcher_name\]: \(.*\)/\1/p"`
+
+if [ -z "$cmd" ]; then
+	printf "%s: unknown watcher '%s'" "$PM" "$cmd">&2
+	exit 1
+fi
+
+dump_paths() {
+	cat "$watch_config" | sed '' 
+}
+
+case "$runner" in
+entr)
+
+	;;
+*)
+	;;
+esac
+
