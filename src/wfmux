@@ -9,13 +9,14 @@ readonly hide_cur='\033[?25l'
 readonly show_cur='\033[?25h'
 readonly clear_screen='\033[2J'
 readonly bold='\033[1m'
-readonly off='\033[0m'
+readonly unset_ansi='\033[0m'
 readonly program=${0##*/}
 readonly config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}"
 readonly profiles="${config_dir%%/}/wfmux/profiles"
 readonly cache_dir="${XDG_CACHE_HOME:-"$HOME/.cache"}"
-readonly cache="${cache_dir%%/}/wfmux"
-readonly session_dir="${config_dir%%/}wfmux/sessions"
+readonly cache="${cache_dir%%/}/wfmux/wfmux"
+readonly session_dir="${cache_dir%%/}wfmux/sessions"
+readonly tmux_conf="$HOME/.tmux.conf"
 
 readonly logo_ls=$(cat <<EOF
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx┌────────────
@@ -74,13 +75,14 @@ runner=entr
 runner_templates="$HOME/.config/wfmux/rtemplate"
 dash_color=4
 explorer=nnn
+ignore=.git
 searcher='fzf --multi --border=bottom --margin=25%'
 window_attributes_rest=20x20+10+20
 window_attributes_file_selector=20x20+10+20
 window_attributes_input_box=20x20+10+20
-tbind_ops=nan
-tbind_explorer=nan
-tbind_select=nan
+tbind_ops==
+tbind_explorer=BSpace
+tbind_select=Enter
 
 project_directory=$(cat <<-EOF
 	$HOME/projects
@@ -111,20 +113,23 @@ Options:
 
 Operation names:
     open      fuzzyly select a project and open a new tmux session.
-	runner    set commands to run when files change.
+    runner    set commands to run when files change.
     explore   open your favorite file manager on a popup tmux pane.
     select    fuzzyly select a file to open provided that they exist
               a recently used tmux session which carries the name of your
               project.
     commit    add to the index and commit changes to local repository.
     push      push to the preconfigured remote repositories.
-	switch    fuzzyly switch between branches of your local repository.
+    switch    fuzzyly switch between branches of your local repository.
+    dump      dump wfmux's tmux configuration to stdout.
+	 tmux      update wfmux's tmux configuration at ~/.tmux.conf.
+    ops       a wrapper to the above operations.
 EOF
 	exit $1
 }
 
 die() {
-	printf '%s\n' "$*"
+	printf "$*\n"
 	exit 1
 }
 
@@ -133,7 +138,8 @@ main() {
 	gave_config=false
 
 	[ $# -eq 0 ] && usage 1
-	until [ $# -eq 0 ]; do
+	until [ $# -eq 0 ]
+	do
 		case $1 in
 			-h|-help|--help)
 				usage 0
@@ -145,7 +151,8 @@ main() {
 				;;
 			push|commit|select|explore|auto|open)
 				operation=$1
-				if [ -f "$wfmux_config" ]; then
+				if [ -f "$wfmux_config" ]
+				then
 					[ -r "$wfmux_config" ] || die "no permission to read '$wfmux_config'"
 					. $wfmux_config        || die "could not source configuration file"
 				fi
@@ -167,17 +174,45 @@ main() {
 ## error message if one of these variables aren't set/sane.
 check_config_variables() {
 	_error="$program: ('$config_file'):"
-
-	for parameter in use_xdg searcher explorer window_attributes_rest tbind_ops dash_color \
-	                 window_attributes_file_selector project_directory tbind_select tbind_explore \
-					 window_attributes_input_box runner; do
-		eval "parameter=\${$parameter:-UNSET}"
-		[ "$parameter" = UNSET ] && die "$_error '$parameter' isn't set"
+	for para in use_xdg \
+		         runner \
+		         searcher \
+		         explorer \
+		         window_attributes_rest \
+		         window_attributes_input_box \
+		         window_attributes_file_selector \
+		         project_directory \
+		         tbind_ops \
+		         tbind_select \
+		         tbind_explore
+	do
+		eval "para=\${$para:-UNSET}"
+		if [ "$para" = UNSET ]
+		then
+			die "$_error '$para' isn't set"
+		fi
 	done
 
-	## check if we got sane values
-	config_die() { die "$_error content of \`$1' is not valid"; }
-	window_regex='[[:digit:]]+x[[:digit:]]+\+[[:digit:]]+\+[[:digit:]]+$'
+	config_die() {
+		die "$_error invalid value assigned to '$1'"
+	}
+
+	# Check for valid bindings to be used to generate tmux config for wfmux
+	for i in tbind_ops tbind_select tbind_explore
+	do
+		eval "key=\${#$i}"
+		if [ $key -ne 1 ]
+		then
+			die "'$i' should be a single character"
+		fi
+		if [ -n "$(expr "$key" : '[^[A-Za-z]]$')" ]
+		then
+			config_die "$i"
+		fi
+	done
+
+	## Check if we got sane values
+	window_regex='[[:digit:]]\+x[[:digit:]]+\+[[:digit:]]+\+[[:digit:]]+$'
 	{
 		expr "$window_attributes_rest"          : "$window_regex" || config_die window_attributes_rest
 		expr "$window_attributes_file_selector" : "$window_regex" || config_die window_attributes_file_selector
@@ -186,26 +221,36 @@ check_config_variables() {
 		expr "$dash_color"                      : '[0-9]$'        || config_die dash_color
 	} >/dev/null
 
-	for cv in explorer runner searcher; do
-		command -v `eval "printf '%s'" "\$$cv"` || die "$error_ '$cv' not found"
+	for cv in explorer runner searcher
+	do
+		command -v "$(eval "printf \${#$cv}")" || die "$error_ '$cv' not found"
 	done
 
-	# IFS=$'\n' won't expand '\n' on dash, thus `for i in $pro...' or a simple `$pro..` might not work as intended
-	printf '%s' "$project_directory" | while read cv; do
+	# IFS=$'\n' won't expand '\n' on dash, thus `for i in $pro...' or a simple use of `$pro..` might not work as intended
+	printf "$project_directory" |
+	while read cv
+	do
 		[ -d "$cv" ] || die "$_error '$cv' is not a directory"
 		[ -r "$cv" ] || die "$_error cannot list content of '$cv'"
 	done
 }
 
+decode_dots() {
+	tr @ . | tr "\034" @
+}
+
+encode_dots() {
+	tr @ "\034" | tr . @
+}
+
 display_dashboard() {
 	term_h=
 	term_w=
-	no_color="\033[0m"
-	put_color="\033[3${dash_color}m"
+	put_color="\033[3${dash_color:-9}m"
 	max="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
 
 	# generate help message for the dashboard
-	gen_key_helper() {
+	_gen_key_helper() {
 		cat <<-EOF
 			The following are tmux bindings related to WFMUX.
 
@@ -216,47 +261,61 @@ display_dashboard() {
 			input any key to exit dashboard
 		EOF
 	}
-	_print() { printf "\033[$1;$2f$3" >/dev/tty; }
+
+	_print() {
+		printf "\033[$1;$2f$3" >/dev/tty
+	}
 
 	# save initial terminal setting and will set it back after exiting dashboard
-	init_stty=$(stty -g)
+	init_stty="$(stty -g)"
 	stty -cooked -echo time 0 min 1
-	printf "${alt_screen}${hide_cur}${clear_screen}${put_color}${bold}"
+	printf "${alt_screen}${hide_cur}${clear_screen}"
 
 	(
 		while true; do
-			[ "$(stty -F /dev/tty size)" = "$term_h $term_w" ] && { sleep 2; continue; }
+			if [ "$(stty -F /dev/tty size)" = "$term_h $term_w" ]
+			then
+				sleep 2
+				continue
+			fi
+			term_h="$(stty -F /dev/tty size | cut -d' ' -f1)"
+			term_w="$(stty -F /dev/tty size | cut -d' ' -f2)"
+			if   [ $term_h -lt 32 -o $term_w -lt 97  ]
+			then
+				_size=ss
+			elif [ $term_h -lt 43 -o $term_w -lt 155 ]
+			then
+				_size=ms
+			else
+				_size=ls
+			fi
+			eval 'logo_h=$(printf "$logo_'$_size'" | wc -l);
+				  logo_w=$(printf "$logo_'$_size'" | eval "$max")'
 
-			term_h=$(stty -F /dev/tty size | cut -d' ' -f1)
-			term_w=$(stty -F /dev/tty size | cut -d' ' -f2)
-			if   [ $term_h -lt 32 -o $term_w -lt 97  ]; then _size=ss
-			elif [ $term_h -lt 43 -o $term_w -lt 155 ]; then _size=ms
-			else                                             _size=ls
+			logo_h="$(expr $logo_h + `_gen_key_helper | wc -l`)"
+			gen_w="$(_gen_key_helper | eval "$max")"
+			x="$(expr $term_w / 2 - $logo_w / 2)"
+			y="$(expr $term_h / 2 - $logo_h / 2)"
+			if [ $gen_w -gt $logo_w ]
+			then
+				gen_x="$(expr $x - \( $gen_w  - $logo_w \) / 2)"
+			else
+				gen_x="$(expr $x + \( $logo_w - $gen_w  \) / 2)"
 			fi
 
-			eval 'logo_h=$(printf "%s" "$logo_'$_size'" | wc -l);
-				  logo_w=$(printf "%s" "$logo_'$_size'" | eval "$max")'
-
-			logo_h=$(expr $logo_h + `gen_key_helper | wc -l`)
-			gen_w=$(gen_key_helper | eval "$max")
-
-			x=$(expr $term_w / 2 - $logo_w / 2)
-			y=$(expr $term_h / 2 - $logo_h / 2)
-
-			[ $gen_w -gt $logo_w ]                         &&
-			gen_x=$(expr $x - \( $gen_w  - $logo_w \) / 2) ||
-			gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
-
-			printf "$clear_screen"
-			eval 'printf "%s" "$logo_'$_size'"' | {
-				while read line; do
+			printf "${clear_screen}${put_color}${bold}"
+			eval 'printf "$logo_'$_size'"' | {
+				while read line
+				do
 					_print $y $x "$(printf "$line" | tr 'x' ' ')"
-					y=$(($y+1))
+					y="$(($y+1))"
 				done
-				printf "$off"
-				gen_key_helper | while read line; do
+
+				printf "$unset_ansi"
+				_gen_key_helper | while read line
+				do
+					y="$(($y+1))"
 					_print $y $gen_x "$line"
-					y=$(($y+1))
 				done
 			}
 		done
@@ -264,27 +323,31 @@ display_dashboard() {
 
 	# get key from standard input
 	dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
-	kill -SIGKILL $! || : "could exit due to set -e"
+	kill -SIGKILL $! || : [[[[CAUTION: script would exit if set -e]]]]
 	stty "$init_stty"
-	printf "${no_color}${show_cur}"
+	printf "${unset_ansi}${show_cur}"
 	tput clear
 }
 
 ## select a project and open a tmux session
 ## refer to usage() function for more information
 open() {
-	if tmux list-sessions >/dev/null 2>&1; then
-		printf 'Choose an existing session to attach\n\n'
+	if tmux list-sessions >/dev/null 2>&1
+	then
+		printf "Choose an existing session to attach\n\n"
 		tmux list-sessions | awk '{print "["NR"] "$0}'
 	fi
-	printf '%s\n' "$wfmux"
+	printf "$wfmux\n"
 	read -p '⟩⟩ ' input
 	tput clear
 
 	if [ -n "$(expr "$input" : '\([0-9][0-9]*\)$')" ]
 	then
-		session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
-		[ -n "$session_name" ] && tmux attach-session -t "$session_name"
+		session_name="$(tmux list-sessions -F '#S' | sed -n "${input}p")"
+		if [ -n "$session_name" ]
+		then
+			tmux attach-session -t "$session_name"
+		fi
 	else
 		if [ -n "$(expr "$input" : '\(F\|f\)$')" ]
 		then
@@ -293,59 +356,172 @@ open() {
 			##### changing timestamp for $cache will always make `[ "$p" -nt "$cache" ]' yield true
 			[ -e "$cache" ] || touch "$cache"
 
-			find_git_repos() { find "$1" -mindepth 2 -type d -iname '.git' -exec expr '{}' : '\(.*\)/.git$' \;; }
+			find_git_repos() {
+				find "$1" -mindepth 2 -type d -iname '.git' -exec expr '{}' : '\(.*\)/.git$' \;
+			}
 
 			project_list=$(
-				printf '%s' "$project_directory" | {
-					while read p; do
-						[ "$p" -nt "$cache" ] && must_find=true
+				printf "$project_directory" | {
+					while read p
+					do
+						if [ "$p" -nt "$cache" ]
+						then
+							must_find=true
+						fi
 						$must_find || { set -- "$@" "$p"; continue; }
 						find_git_repos "$p" | tee ${ran_find--a} "$cache"
 						unset ran_find
 					done
-					if $must_find; then # go through the rest
+					if $must_find
+					then # go through the rest
 						for p in "$@"; do find_git_repos "$p" | tee -a "$cache"; done
 					fi
 				}
 			)
-			[ -z "$project_list" ] && project_list=$(cat "$cache")
+			if [ -z "$project_list" ]
+			then
+				project_list="$(cat "$cache")"
+			fi
 
 			project_name=$(
-			    printf '%s' "$project_list" | 
-				sed -nE 's,^.*/(.*)$,\1,p'  |
-				awk '{print "["NR"]:"$0}'   |
-			    eval "$searcher"            |
-			    tr _ '\034'                 |
-			    tr . _
+				printf "$project_list"     | 
+				sed -nE 's,^.*/(.*)$,\1,p' |
+				awk '{print "["NR"]:"$0}'  |
+				eval "$searcher"
 			)
 			[ -z "$project_name" ] && return
 
-			session_name="$(printf '%s' "$project_list" | sed "$(expr "$program_name" : '\[\([0-9]\+\)\]:.*$')p" | tr '/' '-')"
+			session_name="$(printf "$project_list" | sed "$(expr "$project_name" : '\[\([0-9]\+\)\]:.*$')p" | tr / - | hide_dots)"
 			{
-				if ! tmux has-session -t "$session_name"; then
+				if ! tmux has-session -t "$session_name"
+				then
 					display_dashboard
-					[ -d "$session_dir/$session_name" ] || { set_up_session_and_start_watchers "$session_name"&; }
+					[ -d "$session_dir/$session_name" ] || { set_up_session_and_start_watchers "$session_name"& }
 					tmux new-session -s "$session_name"
 				else
+					# Assume the watchers have already been started and attach the session to the controlling terminal
 					tmux attach-session -t "$session_name"
 				fi
 			} 2>/dev/null
-		elif [ -z "$input" ]; then return
+		elif [ -z "$input" ]
+		then
+			return
 		else
-			tmux new-session -s "$(printf '%s' "$input" | tr _ '\034' | tr . _)"
+			tmux new-session -s "$(printf "$input" | hide_dots )"
 		fi
 	fi
 }
 
-set_up_session_and_start_watchers() {
-	session_name=$1
-
-
+set_whxy() {
+	window_attributes=$1
+	y="$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)$/\1/')"
+	x="$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)+.*/\1/')"
+	w="$(printf "$window_attributes" | sed -e 's/^\([0-9]\+\)x.*/\1/')"
+	h="$(printf "$window_attributes" | sed -e 's/^.*x\([0-9\+]\).*/\1/')"
 }
 
-## select your project files to open
-select()   { :; }
-explorer() { :; }
+_dump() {
+	set_whxy $window_attributes_file_selector
+	cat <<-EOTX
+		unbind M-$tbind_select
+		bind M-$tbind_select if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux select"; }
+	EOTX
+
+	set_whxy $window_attributes_rest
+	cat <<-EOTX
+		unbind M-$tbind_explorer
+		bind M-$tbind_explorer if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux explore"; }
+		unbind M-$tbind_ops
+		bind M-$tbind_ops if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux ops"; }
+	EOTX
+}
+
+dump() {
+	_dump
+}
+
+tmux() {
+	_dump >> "$tmux_conf"
+}
+
+get_project_dir() {
+	tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1 | decode_dots | tr - /
+}
+
+## open your favorite tui file manager
+explore() {
+	# get the name of last used session and translate it into the project directory
+	project_dir=`get_project_dir`
+	if [ -d "$project_dir" -a -d "$session_dir/$project_dir" ]
+	then
+		eval "$explorer" '$project_dir'
+	fi
+}
+
+## select project files to open
+select() {
+	new_window=true
+	sh="^${SHELL:-bash}"
+	project_dir=`get_project_dir`
+
+	[ -d "$project_dir" -a -d "$session_dir/$project_dir" ] || return
+
+	_args() {
+		printf "$ignore" | sed 's/\(.*\)/-iname "\1"/' | tr '\n' ' '
+	}
+
+	file="$(find "$project_dir" \( `_args` -prune \) -or \( -type f \) | eval "$searcher")"
+	[ -n "$file" ] || return
+
+	_open_cmd() {
+		if [ "$use_xdg" != true ]
+		then
+			mime_type="$(xdg-mime query filetype "$file")"
+			if [ $? = 0 -a -n "$mime_type" ]
+			then
+				program="$(printf "$programs" | sed -ne "s/^${mime_type%/*}:[[:space:]]*\([^[:space:]]*\)/\1/p")"
+				if which "$program" &>/dev/null
+				then
+					printf "$program '$file'"
+				fi
+			fi
+		else
+			printf "xdg-open '$file'"
+		fi
+	}
+
+	for wid in $(tmux list-window -F '#{window_activity}:#I' | sort -r -t: -k 1,1n | cut -d: -f2)
+	do
+		panes="$(tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}')"
+		if printf "$panes" | grep -q "$sh"
+		then
+			bash_id="$(printf "$bash_panes" | sed -nE 's/.*:^([0-9]+):1$/\1/p')"
+			if [ -z "$bash_id" ]
+			then
+				bash_id="$(printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2)"
+			fi
+			if tmux send-keys -t "$wid.$bash_id" "$(_open_cmd)" C-m
+			then
+				new_window=false
+			fi
+		else
+			if [ `printf "$panes" | wc -l` -eq 1 ]
+			then
+				if tmux split-window -h -t "$wid" "$(_open_cmd)"
+				then
+					new_window=false
+				fi
+			fi 
+		fi
+	done
+
+	if [ $new_window = true ]
+	then
+		tmux new-window "$(_open_cmd)"
+	fi
+}
+
+set_up_session_and_start_watchers() { :; }
 switch()   { :; }
 commit()   { :; }
 runner()   { :; }
