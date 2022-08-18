@@ -38,14 +38,10 @@ if [ -z "$cmd" ]; then
 fi
 
 dump_paths() {
-	cat "$watch_config" | sed '' 
+	cat "$watch_config" | sed "/^s:\[$watcher_name\]/,/^e:\[$watcher_name\]/p" | tail -n +2 | sed '$d'
 }
 
 case "$runner" in
-entr)
-
-	;;
-*)
-	;;
+entr) dump_paths | entr -nr $cmd ;;
+*) : ;;
 esac
-

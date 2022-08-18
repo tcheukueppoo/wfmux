@@ -1,4 +1,4 @@
-#!/bin/dash
+#!/bin/sh
 
 #set -x
 set -ue
@@ -16,7 +16,7 @@ readonly wfmux_config_dir="${config_dir%%/}/wfmux/"
 readonly cache_dir="${XDG_CACHE_HOME:-"$HOME/.cache"}"
 readonly cache="${cache_dir%%/}/wfmux"
 readonly cache_pl="${cache_dir}/wfmux.pl"
-readonly session_dir="${cache_dir%%/}wfmux/sessions"
+readonly session_dir="${cache_dir%%/}/wfmux/sessions"
 readonly tmux_conf="$HOME/.tmux.conf"
 
 mkdir -p "$config_dir" "$cache_dir" "$cache" "$session_dir" "$wfmux_config_dir"
@@ -237,6 +237,12 @@ encode_dots() {
 	tr @ "\034" | tr . @
 }
 
+encode_dash() {
+}
+
+decode_dash() {
+}
+
 display_dashboard() {
 	term_h=
 	term_w=
@@ -326,6 +332,8 @@ display_dashboard() {
 ## select a project and open a tmux session
 ## refer to usage() function for more information
 func_open() {
+	local session_name input
+
 	if tmux list-sessions >/dev/null 2>&1
 	then
 		printf "Choose an existing session to attach\n\n"
@@ -345,14 +353,13 @@ func_open() {
 	else
 		if [ -n "$(expr "$input" : '\(F\|f\)$')" ]
 		then
-			ran_find=
-			must_find=false
-			[ -e "$cache_pl" ] || touch "$cache_pl"
+			local ran_find project_list
+			local must_find=false
 
 			find_git_repos() {
 				find "$1" -mindepth 2 -type d -iname '.git' -exec expr '{}' : '\(.*\)/.git$' \;
 			}
-
+			[ -e "$cache_pl" ] || touch "$cache_pl"
 			project_list=$(
 				printf "$project_directory" | {
 					while read p
@@ -377,10 +384,10 @@ func_open() {
 			fi
 
 			project_name=$(
-				printf "$project_list"     | 
-				sed -nE 's,^.*/(.*)$,\1,p' |
-				awk '{print "["NR"]:"$0}'  |
-				eval "$searcher"
+				  printf "$project_list" \
+				| sed -nE 's,^.*/(.*)$,\1,p' \
+				| awk '{print "["NR"]:"$0}' \
+				| eval "$searcher"
 			)
 			[ -z "$project_name" ] && return
 
@@ -390,7 +397,7 @@ func_open() {
 				if ! tmux has-session -t "$session_name"
 				then
 					display_dashboard
-					setup_session "$project_dir" "$session_name"&
+					_setup_session "$project_dir" "$session_name"&
 					tmux new-session -s "$session_name"
 				else
 					# Assume the watchers have already been started and attach the session to the controlling terminal
@@ -406,24 +413,26 @@ func_open() {
 	fi
 }
 
-setup_session() {
+_setup_session() {
 	local project_dir="$1"
 	local project_session="$session_dir/$2"
 	local watch_config="$session_dir/$2/watch"
 
 	if [ -f "$watch_config" ]
 	then
-		for i in `cat "$watch_config" | sed -n 's/^s:\[\(.*\)\].*/\1/p'`
+		local fifo
+		for i in `cat "$watch_config" | sed -ne 's/^s:\[\(.*\)\].*/\1/p'`
 		do
 			fifo="$project_session/${i}_fifo"
-			nohup wxwatch "$runner" "$i" "$watch_config" >"$fifo"
+			test -p "$fifo" || mkfifo "$fifo"
+			#wxwatch "$runner" "$i" "$watch_config" >"$fifo" &
 		done
 	fi
 
-	mkdir -p "$session_config"
+	mkdir -p "$project_session"
 }
 
-set_whxy() {
+__set_whxy() {
 	local window_attributes="$1"
 
 	y="$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)$/\1/')"
@@ -433,13 +442,13 @@ set_whxy() {
 }
 
 _dump() {
-	set_whxy $window_attributes_file_selector
+	__set_whxy $window_attributes_file_selector
 	cat <<-EOTX
 		unbind M-$tbind_select
 		bind M-$tbind_select if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux select"; }
 	EOTX
 
-	set_whxy $window_attributes_rest
+	__set_whxy $window_attributes_rest
 	cat <<-EOTX
 		unbind M-$tbind_explore
 		bind M-$tbind_explore if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux explore"; }
@@ -456,14 +465,14 @@ func_tmux() {
 	_dump >> "$tmux_conf"
 }
 
-get_project_dir() {
+_get_project_dir() {
 	tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1 | decode_dots | tr - /
 }
 
 ## open your favorite tui file manager
 func_explore() {
-	# get the name of last used session and translate it into the project directory
-	project_dir=`get_project_dir`
+	local project_dir=`_get_project_dir`
+
 	if [ -d "$project_dir" -a -d "$session_dir/$project_dir" ]
 	then
 		eval "$explorer" '$project_dir'
@@ -472,65 +481,74 @@ func_explore() {
 
 ## select project files to open
 func_select() {
-	new_window=true
-	sh="^${SHELL:-bash}"
-	project_dir=`get_project_dir`
+	set -x
+	local file
+	local new_window=true
+	local sh="^${SHELL:-bash}"
+	local project_dir=`_get_project_dir`
 
-	[ -d "$project_dir" -a -d "$session_dir/$project_dir" ] || return
+	[ -d "$project_dir" ] || return
 
-	_args() {
-		printf "$ignore" | sed -e 's/\(.*\)/-iname "\1" /' | tr '\n' ' '
-	}
 
-	file="$(find "$project_dir" \( `_args` -prune \) -or \( -type f \) | eval "$searcher")"
+	file=$(
+		args=`
+			printf "$ignore" |
+			sed \
+			   -e '
+			   ${ 
+				 s/\(.*\)/-name "\1"/
+				 q
+			   }
+			   1,${ 
+				 s/\(.*\)/-name "\1" -or /
+			   }' |
+			tr '\n' ' '
+		`
+		eval "find '$project_dir' \( $args \) -prune -or -type f -print | $searcher"
+	)
 	[ -n "$file" ] || return
 
-	_open_cmd() {
-		if [ "$use_xdg" != true ]
+	_open_file() {
+		if [ x"$use_xdg" != xtrue ]
 		then
-			mime_type="$(xdg-mime query filetype "$file")"
+			local mime_type="$(xdg-mime query filetype "$file")"
 			if [ $? = 0 -a -n "$mime_type" ]
 			then
-				program="$(printf "$programs" | sed -ne "s/^${mime_type%/*}:[[:space:]]*\([^[:space:]]*\)/\1/p")"
-				if which "$program" >/dev/null 2>&1
-				then
-					printf "$program '$file'"
-				fi
+				local opener="$(printf "$programs" | sed -ne "s/^${mime_type%/*}:[[:space:]]*\([^[:space:]]*\)/\1/p")"
+				which "$opener" >/dev/null 2>&1 && printf "$opener '$file'"
 			fi
 		else
 			printf "xdg-open '$file'"
 		fi
 	}
 
-	for wid in $(tmux list-window -F '#{window_activity}:#I' | sort -r -t: -k 1,1n | cut -d: -f2)
+	for wid in $(
+	      tmux list-window -F '#{window_activity}:#I' \
+	    | sort -r -t: -k 1,1n \
+		| cut -d: -f2
+	)
 	do
-		panes="$(tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}')"
-		if printf "$panes" | grep -q "$sh"
-		then
-			bash_id="$(printf "$bash_panes" | sed -nE 's/.*:^([0-9]+):1$/\1/p')"
+		local panes="$(tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}')"
+		printf "$panes" | cut -d: -f1 | grep -q "$sh"
+		if [ $? -eq 0 ]; then
+			local bash_id="$(printf "$bash_panes" | sed -nE 's/.*:^([0-9]+):1$/\1/p')"
 			if [ -z "$bash_id" ]
 			then
 				bash_id="$(printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2)"
 			fi
-			if tmux send-keys -t "$wid.$bash_id" "$(_open_cmd)" C-m
-			then
-				new_window=false
-			fi
+			tmux send-keys -t "$wid.$bash_id" "$(_open_file)" C-m
+			test $? -eq 0 && { new_window=false; break; }
 		else
+			printf "tmux splits\n"
 			if [ `printf "$panes" | wc -l` -eq 1 ]
 			then
-				if tmux split-window -h -t "$wid" "$(_open_cmd)"
-				then
-					new_window=false
-				fi
+				tmux split-window -h -t "$wid" "$(_open_file)"
+				test $? -eq 0 && { new_window=false; break; }
 			fi 
 		fi
 	done
 
-	if [ $new_window = true ]
-	then
-		tmux new-window "$(_open_cmd)"
-	fi
+	test $new_window = true && tmux new-window "$(_open_file)"
 }
 
 switch()   { :; }
