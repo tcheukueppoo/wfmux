@@ -457,13 +457,13 @@ func_tmux() {
 	_dump >> "$tmux_conf"
 }
 
-_get_project_dir() {
+_get_session_name() {
 	tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1 | decode_dots
 }
 
 ## open your favorite tui file manager
 func_explore() {
-	local session_name=`_get_project_dir`
+	local session_name=`_get_session_name`
 	local project_dir=`printf -- "$session_name" | decode_dash`
 
 	echo "$session_name, $project_dir"
@@ -478,11 +478,10 @@ func_select() {
 	set -x
 	local file
 	local new_window=true
-	local sh="^${SHELL:-bash}"
-	local project_dir=`_get_project_dir`
+	local sh=${SHELL##*/}
+	local project_dir=`_get_session_name | decode_dash`
 
 	[ -d "$project_dir" ] || return
-
 
 	file=$(
 		args=`
@@ -500,7 +499,7 @@ func_select() {
 		`
 		eval "find '$project_dir' \( $args \) -prune -or -type f -print | $searcher"
 	)
-	[ -n "$file" ] || return
+	test -n "$file" || return
 
 	_open_file() {
 		if [ x"$use_xdg" != xtrue ]
@@ -522,19 +521,26 @@ func_select() {
 		| cut -d: -f2
 	)
 	do
-		local panes="$(tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}')"
-		printf "$panes" | cut -d: -f1 | grep -q "$sh"
-		if [ $? -eq 0 ]; then
-			local bash_id="$(printf "$bash_panes" | sed -nE 's/.*:^([0-9]+):1$/\1/p')"
-			test -z "$bash_id" && bash_id="$(printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2)"
-			tmux send-keys -t "$wid.$bash_id" "$(_open_file)" C-m
-			[ $? -eq 0 ] && new_window=false && break
-		else
-			printf "tmux splits\n"
-			if [ `printf "$panes" | wc -l` -eq 1 ]
+		local panes=`tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}'`
+		local bash_panes=`printf "$panes" | grep "^${sh:-bash}:"`
+
+		if [ -n "$bash_panes" ]
+		then
+			# is it an idle active pane?
+			local bash_id=`printf "$bash_panes" | sed -nE 's/.*:([0-9]+):1$/\1/p'`
+			if [ -z "$bash_id" ]
 			then
-				tmux split-window -h -t "$wid" "$(_open_file)"
-				[ $? -eq 0 ] && new_window=false && break
+				# take the most recently opened idle pane
+				bash_id=`printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2`
+			fi
+			tmux send-keys -t "$wid.$bash_id" "$(_open_file)" C-m
+			test $? -eq 0 && new_window=false && break
+		else
+			if [ `printf '%s\n' "$panes" | wc -l` -eq 1 ]
+			then
+				tmux select-window -t "$wid"
+				tmux split-window -h "$(_open_file)"
+				test $? -eq 0 && new_window=false && break
 			fi 
 		fi
 	done
