@@ -224,24 +224,16 @@ check_config_variables() {
 	printf "$project_directory" |
 	while read i
 	do
-		[ -d "$i" ] || die "$_error '$i' is not a directory"
-		[ -r "$i" ] || die "$_error cannot list content of '$i'"
+		test -d "$i" || die "$_error '$i' is not a directory"
+		test -r "$i" || die "$_error cannot list content of '$i'"
 	done
 }
 
-decode_dots() {
-	tr @ . | tr "\034" @
-}
+decode_dots() { tr "\034" .; }
+encode_dots() { tr . "\034"; }
 
-encode_dots() {
-	tr @ "\034" | tr . @
-}
-
-encode_dash() {
-}
-
-decode_dash() {
-}
+encode_dash() { tr - '⁓' | tr / -; }
+decode_dash() { tr - /   | tr '⁓' -; }
 
 display_dashboard() {
 	term_h=
@@ -392,7 +384,7 @@ func_open() {
 			[ -z "$project_name" ] && return
 
 			project_dir="$(printf "$project_list" | sed -n "$(expr "$project_name" : '\[\([0-9]\+\)\]:.*$')p" | encode_dots)"
-			session_name="$(printf "$project_dir" | tr / -)"
+			session_name="$(printf "$project_dir" | encode_dash)"
 			{
 				if ! tmux has-session -t "$session_name"
 				then
@@ -408,7 +400,7 @@ func_open() {
 		then
 			return 0
 		else
-			tmux new-session -s "$(printf "$input" | encode_dots)"
+			tmux new-session -s "$(printf "$input" | encode_dots | encode_dash)"
 		fi
 	fi
 }
@@ -466,16 +458,18 @@ func_tmux() {
 }
 
 _get_project_dir() {
-	tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1 | decode_dots | tr - /
+	tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1 | decode_dots
 }
 
 ## open your favorite tui file manager
 func_explore() {
-	local project_dir=`_get_project_dir`
+	local session_name=`_get_project_dir`
+	local project_dir=`printf -- "$session_name" | decode_dash`
 
-	if [ -d "$project_dir" -a -d "$session_dir/$project_dir" ]
+	echo "$session_name, $project_dir"
+	if [ -d "$project_dir" -a -d "$session_dir/$session_name" ]
 	then
-		eval "$explorer" '$project_dir'
+		eval "$explorer" "$project_dir"
 	fi
 }
 
@@ -532,18 +526,15 @@ func_select() {
 		printf "$panes" | cut -d: -f1 | grep -q "$sh"
 		if [ $? -eq 0 ]; then
 			local bash_id="$(printf "$bash_panes" | sed -nE 's/.*:^([0-9]+):1$/\1/p')"
-			if [ -z "$bash_id" ]
-			then
-				bash_id="$(printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2)"
-			fi
+			test -z "$bash_id" && bash_id="$(printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2)"
 			tmux send-keys -t "$wid.$bash_id" "$(_open_file)" C-m
-			test $? -eq 0 && { new_window=false; break; }
+			[ $? -eq 0 ] && new_window=false && break
 		else
 			printf "tmux splits\n"
 			if [ `printf "$panes" | wc -l` -eq 1 ]
 			then
 				tmux split-window -h -t "$wid" "$(_open_file)"
-				test $? -eq 0 && { new_window=false; break; }
+				[ $? -eq 0 ] && new_window=false && break
 			fi 
 		fi
 	done
