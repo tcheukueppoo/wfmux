@@ -125,7 +125,7 @@ Operation names:
     push      push to the preconfigured remote repositories.
     switch    fuzzyly switch between branches of your local repository.
     dump      dump wfmux's tmux configuration to stdout.
-	 tmux      update wfmux's tmux configuration at ~/.tmux.conf.
+    tmux      update wfmux's tmux configuration at ~/.tmux.conf.
     ops       a wrapper to the above operations.
 EOF
 	exit $1
@@ -449,13 +449,8 @@ _dump() {
 	EOTX
 }
 
-func_dump() {
-	_dump
-}
-
-func_tmux() {
-	_dump >> "$tmux_conf"
-}
+func_dump() { _dump; }
+func_tmux() { _dump >> "$tmux_conf"; }
 
 _get_session_name() {
 	tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1 | decode_dots
@@ -475,7 +470,6 @@ func_explore() {
 
 ## select project files to open
 func_select() {
-	set -x
 	local file
 	local new_window=true
 	local sh=${SHELL##*/}
@@ -548,8 +542,35 @@ func_select() {
 	test $new_window = true && tmux new-window "$(_open_file)"
 }
 
+# Wrap all operations
+func_ops() {
+	local ops=$(
+	    printf "commit
+switch
+runner
+explore
+select
+push" | eval "$searcher")
+
+	test -n "$ops" && {
+		trap '' INT TERM HUP
+
+		case $ops in
+			select) __set_whxy $window_attributes_file_selector ;;
+			commit) __set_whxy $window_attributes_input_box ;;
+			runner | switch | explore | push) __set_whxy $window_attributes_rest ;;
+		esac
+		sleep 1
+
+		tmux display-popup -w $w -h $h -x $x -y $y -E "/home/kueppo/projects/wfmux/src/wfmux $ops"
+		#tmux display-popup -w $w -h $h -x $x -y $y -E "wfmux $ops"
+	} &
+
+	tmux display-popup -C
+}
+
+func_commit() { :; }
 switch()   { :; }
-commit()   { :; }
 runner()   { :; }
 
 
