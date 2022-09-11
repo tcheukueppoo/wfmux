@@ -461,7 +461,7 @@ func_explore() {
 
 ## select project files to open
 func_select() {
-	local file
+	local file torun
 	local new_window=true
 	local sh=${SHELL##*/}
 	local project_dir=`_get_project_dir`
@@ -476,48 +476,76 @@ func_select() {
 	test -n "$file" || return
 	file="$project_dir/$file"
 
-	_open_file() {
+	_open_file_command() {
 		if [ x"$use_xdg" != xtrue ]
 		then
+			local mime
 			local mime_type="$(xdg-mime query filetype "$file")"
+
 			if [ $? = 0 ] && [ -n "$mime_type" ]
 			then
-				local opener="$(printf "$programs" | sed -ne "s/^${mime_type%/*}:[[:space:]]*\([^[:space:]]*\)/\1/p")"
-				which "$opener" >/dev/null 2>&1 
-				test $? = 0 && printf "$opener '$file'"
+				# The right program to open files of type 'application' can partly be determined
+				# with the aid of its subtype, like for example application/json, application/pdf, etc.
+				# therefore $mime should be the file's subtype in case the we have 'application' as mime
+				# type otherwise its type is the best option.
+				test "${mime_type%/*}" = application && mime="${mime_type#*/}" || mime="${mime_type%/*}"
+
+				local opener="$(printf "$programs" | sed -ne "s/^$mime:[[:space:]]*\([^[:space:]]*\)/\1/p")"
+				opener="${opener:-$EDITOR}"
+				opener="${opener:-vim}"
+
+				{ 
+					which "$opener" 1>&2
+					if [ $? -eq 0 ]  
+					then
+						# Put in list of all TUI applications that takes a $file as argument
+						if printf "$opener" | grep -qE '^vim|ranger|cmus|nvim|nnn|kak$'
+						then
+							printf "$opener '$file'"
+						else
+							{ trap '' HUP; eval "$opener '$file'"; } &
+							tmux display-popup -C
+						fi
+					fi
+				} 2>/dev/null
 			fi
 		else
 			printf "xdg-open '$file'"
 		fi
 	}
 
-	for wid in $(tmux list-window -F '#{window_activity}:#I' | sort -r -t: -k 1,1n | cut -d: -f2)
-	do
-		local panes=`tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}'`
-		local bash_panes=`printf "$panes" | grep "^${sh:-bash}:"`
+	local torun=`_open_file_command`
+	if [ -n "$torun" ]
+	then
+		for wid in $(tmux list-window -F '#{window_activity}:#I' | sort -r -t: -k 1,1n | cut -d: -f2)
+		do
+			local panes="$(tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}')"
+			local bash_panes="$(printf "$panes" | grep "^${sh:-bash}:")"
 
-		if [ -n "$bash_panes" ]
-		then
-			# is it an idle active pane?
-			local bash_id=`printf "$bash_panes" | sed -nE 's/.*:([0-9]+):1$/\1/p'`
-			if [ -z "$bash_id" ]
+			if [ -n "$bash_panes" ]
 			then
-				# take the most recently opened idle pane
-				bash_id=`printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2`
+				# is it an idle active pane?
+				local bash_id="$(printf "$bash_panes" | sed -nE 's/.*:([0-9]+):1$/\1/p')"
+				if [ -z "$bash_id" ]
+				then
+					# take the most recently opened idle pane
+					bash_id="$(printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2)"
+				fi
+
+				tmux send-keys -t "$wid.$bash_id" "$torun" C-m
+				if [ $? -eq 0 ]; then new_window=false; break; fi
+			else
+				if [ `printf '%s\n' "$panes" | wc -l` -eq 1 ]
+				then
+					tmux select-window -t "$wid"
+					tmux split-window -h "$torun"
+					if [ $? -eq 0 ]; then new_window=false; break; fi
+				fi
 			fi
-			tmux send-keys -t "$wid.$bash_id" "$(_open_file)" C-m
-			test $? -eq 0 && new_window=false && break
-		else
-			if [ `printf '%s\n' "$panes" | wc -l` -eq 1 ]
-			then
-				tmux select-window -t "$wid"
-				tmux split-window -h "$(_open_file)"
-				test $? -eq 0 && new_window=false && break
-			fi 
-		fi
-	done
+		done
 
-	test $new_window = true && tmux new-window "$(_open_file)"
+		test $new_window = true && tmux new-window "$(_open_file)"
+	fi
 }
 
 func_commit() {
@@ -539,7 +567,7 @@ select
 push" | eval "$searcher")
 
 	test -n "$ops" && {
-		trap '' INT TERM HUP
+		trap '' HUP
 
 		case $ops in
 			select) __set_whxy $window_attributes_file_selector ;;
