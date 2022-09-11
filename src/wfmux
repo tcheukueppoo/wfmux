@@ -80,6 +80,7 @@ dash_color=4
 explorer=nnn
 ignore=.git
 searcher='fzf --multi --border=bottom --margin=25%'
+searcher_open='fzf --multi --border=bottom --margin=25%'
 window_attributes_rest=20x20+10+20
 window_attributes_file_selector=20x20+10+20
 window_attributes_input_box=20x20+10+20
@@ -144,13 +145,13 @@ main() {
 	until [ $# -eq 0 ]
 	do
 		case "$1" in
-		-h|-help|--help)
+		-h | -help | --help)
 			usage 0 ;;
-		-c|-config|--config)
+		-c | -config | --config)
 			[ $# -eq 1 ] && wfmux_config=$2 || usage 1
 			gave_config=true
 			shift ;;
-		push|commit|select|explore|auto|open|tmux|dump|ops)
+		push | commit | select | explore | auto | open | tmux | dump | ops)
 			operation=$1
 			if [ -f "$wfmux_config" ]
 			then
@@ -162,6 +163,7 @@ main() {
 		esac
 		shift
 	done
+
 	if [ $gave_config = true ]
 	then
 		check_config_variables
@@ -172,6 +174,7 @@ main() {
 			check_config_variables
 		fi
 	fi
+
 	eval "func_$operation"
 }
 
@@ -217,10 +220,11 @@ check_config_variables() {
 
 	for i in explorer runner searcher
 	do
-		eval "command -v" "\${$i} >/dev/null" || die "$_error '$i' not found"
+		eval "command -v" "\${$i} >/dev/null"
+		test $? -ne 0 && die "$_error '$i' not found"
 	done
 
-	# IFS=$'\n' won't expand '\n' on dash, thus `for i in $pro...' or a simple use of `$pro..` might not work as intended
+	# IFS=$'\n' won't expand '\n' on dash shell
 	printf "$project_directory" |
 	while read i
 	do
@@ -229,17 +233,11 @@ check_config_variables() {
 	done
 }
 
-decode_dots() { tr "\034" .; }
-encode_dots() { tr . "\034"; }
-
-encode_dash() { tr - '⁓' | tr / -; }
-decode_dash() { tr - /   | tr '⁓' -; }
-
 display_dashboard() {
-	term_h=
-	term_w=
-	put_color="\033[3${dash_color:-9}m"
-	max="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
+	local term_h=
+	local term_w=
+	local put_color="\033[3${dash_color:-9}m"
+	local max="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
 
 	# generate help message for the dashboard
 	_gen_key_helper() {
@@ -307,7 +305,7 @@ display_dashboard() {
 				_gen_key_helper | while read i
 				do
 					y="$(($y+1))"
-					_print $y $gen_x "$i"
+					_print "$y" "$gen_x" "$i"
 				done
 			}
 		done
@@ -315,7 +313,7 @@ display_dashboard() {
 
 	# get key from standard input
 	dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
-	kill -SIGKILL $! || : [[[[CAUTION: script would exit if set -e]]]]
+	kill -9 $! || : ## CAUTION: script would exit if set -e
 	stty "$init_stty"
 	printf "${unset_ansi}${show_cur}"
 	tput clear
@@ -345,46 +343,35 @@ func_open() {
 	else
 		if [ -n "$(expr "$input" : '\(F\|f\)$')" ]
 		then
-			local ran_find project_list
-			local must_find=false
+			local project_list mcount
 
-			find_git_repos() {
+			locate_git_repos() {
 				find "$1" -mindepth 2 -type d -iname '.git' -exec expr '{}' : '\(.*\)/.git$' \;
 			}
-			[ -e "$cache_pl" ] || touch "$cache_pl"
-			project_list=$(
-				printf "$project_directory" | {
-					while read p
-					do
-						if [ "$p" -nt "$cache_pl" ]
-						then
-							must_find=true
-						fi
-						$must_find || { set -- "$@" "$p"; continue; }
-						find_git_repos "$p" | tee ${ran_find--a} "$cache_pl"
-						unset ran_find
-					done
-					if $must_find
-					then # go through the rest
-						for p in "$@"; do find_git_repos "$p" | tee -a "$cache_pl"; done
+
+			# TODO: cache search results
+			project_list="$(printf "$project_directory\n" | while read pdir; do locate_git_repos "$pdir"; done | tee "$cache_pl")"
+
+			project_name="$(printf "$project_list" | sed -nE 's,^.*/(.*)$,\1,p' | awk '{print "["NR"]:"$0}' | eval "$searcher_open")"
+			test -z "$project_name" && return
+
+			project_dir="$(printf "$project_list" | sed -n "$(expr "$project_name" : '\[\([0-9]\+\)\]:.*$')p")"
+			session_name=`mktemp -u pr-XXXXXX`
+
+			# Check if session already exist
+			for i in "$session_dir"/*
+			do
+				local path="$i/path"
+				if [ -f "$path" ]
+				then
+					if [ `cat "$path"` = "$project_dir" ]
+					then
+						session_name=`basename "$i"`
 					fi
-				}
-			)
-			if [ -z "$project_list" ]
-			then
-				project_list="$(cat "$cache_pl")"
-			fi
+				fi
+			done
 
-			project_name=$(
-				  printf "$project_list" \
-				| sed -nE 's,^.*/(.*)$,\1,p' \
-				| awk '{print "["NR"]:"$0}' \
-				| eval "$searcher"
-			)
-			[ -z "$project_name" ] && return
-
-			project_dir="$(printf "$project_list" | sed -n "$(expr "$project_name" : '\[\([0-9]\+\)\]:.*$')p" | encode_dots)"
-			session_name="$(printf "$project_dir" | encode_dash)"
+			# Start session with all its watchers
 			{
 				if ! tmux has-session -t "$session_name"
 				then
@@ -396,11 +383,12 @@ func_open() {
 					tmux attach-session -t "$session_name"
 				fi
 			} 2>/dev/null
+
 		elif [ -z "$input" ]
 		then
 			return 0
 		else
-			tmux new-session -s "$(printf "$input" | encode_dots | encode_dash)"
+			tmux new-session -s "$(printf "$input")"
 		fi
 	fi
 }
@@ -408,20 +396,22 @@ func_open() {
 _setup_session() {
 	local project_dir="$1"
 	local project_session="$session_dir/$2"
-	local watch_config="$session_dir/$2/watch"
 
+	mkdir -p "$project_session"
+	printf "$project_dir" >"$project_session/path"
+
+	local watch_config="$project_session/watch"
 	if [ -f "$watch_config" ]
 	then
 		local fifo
 		for i in `cat "$watch_config" | sed -ne 's/^s:\[\(.*\)\].*/\1/p'`
 		do
+			# You would be seeing results of watchers via named-pipes
 			fifo="$project_session/${i}_fifo"
 			test -p "$fifo" || mkfifo "$fifo"
 			#wxwatch "$runner" "$i" "$watch_config" >"$fifo" &
 		done
 	fi
-
-	mkdir -p "$project_session"
 }
 
 __set_whxy() {
@@ -452,20 +442,21 @@ _dump() {
 func_dump() { _dump; }
 func_tmux() { _dump >> "$tmux_conf"; }
 
-_get_session_name() {
-	tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1 | decode_dots
+_get_project_dir() {
+	local session_name="$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)"
+	local session="$session_dir/$session_name"
+
+	if [ -d "$session" ]
+	then
+		local project_dir=`cat "$session/path"`
+		test -d "$project_dir" && printf "$project_dir"
+	fi
 }
 
 ## open your favorite tui file manager
 func_explore() {
-	local session_name=`_get_session_name`
-	local project_dir=`printf -- "$session_name" | decode_dash`
-
-	echo "$session_name, $project_dir"
-	if [ -d "$project_dir" -a -d "$session_dir/$session_name" ]
-	then
-		eval "$explorer" "$project_dir"
-	fi
+	local project_dir=`_get_project_dir`
+	eval "$explorer" "$project_dir"
 }
 
 ## select project files to open
@@ -473,47 +464,34 @@ func_select() {
 	local file
 	local new_window=true
 	local sh=${SHELL##*/}
-	local project_dir=`_get_session_name | decode_dash`
+	local project_dir=`_get_project_dir`
 
-	[ -d "$project_dir" ] || return
+	test -d "$project_dir" || return
 
 	file=$(
-		args=`
-			printf "$ignore" |
-			sed \
-			   -e '
-			   ${ 
-				 s/\(.*\)/-name "\1"/
-				 q
-			   }
-			   1,${ 
-				 s/\(.*\)/-name "\1" -or /
-			   }' |
-			tr '\n' ' '
-		`
-		eval "find '$project_dir' \( $args \) -prune -or -type f -print | $searcher"
+		args="$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')"
+		eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $searcher"
 	)
+
 	test -n "$file" || return
+	file="$project_dir/$file"
 
 	_open_file() {
 		if [ x"$use_xdg" != xtrue ]
 		then
 			local mime_type="$(xdg-mime query filetype "$file")"
-			if [ $? = 0 -a -n "$mime_type" ]
+			if [ $? = 0 ] && [ -n "$mime_type" ]
 			then
 				local opener="$(printf "$programs" | sed -ne "s/^${mime_type%/*}:[[:space:]]*\([^[:space:]]*\)/\1/p")"
-				which "$opener" >/dev/null 2>&1 && printf "$opener '$file'"
+				which "$opener" >/dev/null 2>&1 
+				test $? = 0 && printf "$opener '$file'"
 			fi
 		else
 			printf "xdg-open '$file'"
 		fi
 	}
 
-	for wid in $(
-	      tmux list-window -F '#{window_activity}:#I' \
-	    | sort -r -t: -k 1,1n \
-		| cut -d: -f2
-	)
+	for wid in $(tmux list-window -F '#{window_activity}:#I' | sort -r -t: -k 1,1n | cut -d: -f2)
 	do
 		local panes=`tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}'`
 		local bash_panes=`printf "$panes" | grep "^${sh:-bash}:"`
@@ -542,6 +520,14 @@ func_select() {
 	test $new_window = true && tmux new-window "$(_open_file)"
 }
 
+func_commit() {
+	:;
+}
+
+switch()   { :; }
+
+runner()   { :; }
+
 # Wrap all operations
 func_ops() {
 	local ops=$(
@@ -560,7 +546,6 @@ push" | eval "$searcher")
 			commit) __set_whxy $window_attributes_input_box ;;
 			runner | switch | explore | push) __set_whxy $window_attributes_rest ;;
 		esac
-		sleep 1
 
 		tmux display-popup -w $w -h $h -x $x -y $y -E "/home/kueppo/projects/wfmux/src/wfmux $ops"
 		#tmux display-popup -w $w -h $h -x $x -y $y -E "wfmux $ops"
@@ -568,10 +553,5 @@ push" | eval "$searcher")
 
 	tmux display-popup -C
 }
-
-func_commit() { :; }
-switch()   { :; }
-runner()   { :; }
-
 
 main "$@"
