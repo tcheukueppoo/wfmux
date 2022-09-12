@@ -143,7 +143,7 @@ die() {
 	exit 1
 }
 
-main() {
+func_main() {
 	local operation=
 	local gave_config=false
 
@@ -163,11 +163,12 @@ main() {
 		acommit | \
 		select  | \
 		explore | \
-		auto    | \
 		open    | \
 		tmux    | \
 		dump    | \
 		ops     | \
+		view    | \
+		watch   | \
 		switch  | \
 		sswitch)
 			operation=$1
@@ -630,7 +631,7 @@ __commit() {
 				$editor "$tempfile"
 				# Let git abord if we did not commit with a commit message
 				# than trying to introduce a `du'-like command
-				git commit "$(cat "$tempfile")"
+				git commit --message "$(cat "$tempfile")"
 				rm -f "$tempfile"
 			else
 				git commit --amend
@@ -742,6 +743,8 @@ push" | eval "$searcher")
 			explore | \
 			push    | \
 			fpush   | \
+			watch   | \
+			view    | \
 			ssession)
 				__set_whxy $window_attributes_rest ;;
 		esac
@@ -753,4 +756,4 @@ push" | eval "$searcher")
 	tmux display-popup -C
 }
 
-main "$@"
+func_main "$@"
