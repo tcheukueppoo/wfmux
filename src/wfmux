@@ -72,6 +72,7 @@ readonly wfmux=$(cat<<EOF
 EOF
 )
 
+username=username
 tok=tok
 gitlab_tok_name=gitlab_token_name
 wfmux_config="${config_dir%%/}/wfmux/wfmux.conf"
@@ -671,9 +672,10 @@ __push() {
 	  command -v "$tok" || return
 	} >/dev/null
 
-	local project_name="$(basename `_get_project_dir`)"
+	local project_dir=`_get_project_dir`
+	test -n "$project_dir" && project_name="$(basename "$project_dir")"
 
-	if [ -n "$project_dir" ]
+	if [ -n "$project_name" ]
 	then
 		cd "$project_dir"
 		if [ $? -eq 0 ]
@@ -682,8 +684,9 @@ __push() {
 
 			if [ -n "$remote" ]; then
 				local proto=https
-				local branch="$(git branch | sed -ne 's,^*\(.*\),\1,p')"
-				local tok="$(eval "$tok '$remote'")"
+				local branch="$(git branch | sed -ne 's,^* \(.*\),\1,p')"
+				local tok="$(eval "$tok '${remote%%.*}'")"
+				local force=${1:---force}
 
 				case $remote in
 					codeberg.org | github.com | github.com) proto=https ;;
@@ -694,7 +697,7 @@ __push() {
 					tok="$gitlab_tok_name:$tok"
 				fi
 
-				git push "$1" --set-upstream "$proto://$tok@$remote/$project_name.git" "$branch"
+				git push "$force" --set-upstream "$proto://$tok@$remote/$username/$project_name.git" "$branch"
 			fi
 		fi
 	fi
