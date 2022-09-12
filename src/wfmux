@@ -549,15 +549,53 @@ func_select() {
 }
 
 func_commit() {
-	:;
+	local project_dir=`_get_project_dir`
+	local tempfile=`mktemp /tmp/.git_XXXXXX`
+	local editor="$(printf "$programs" | sed -ne 's/^[ \t]*text:[ \t]\+\(\w*\)$/\1/p')"
+
+	editor="${editor:-$EDITOR}"
+	editor="${editor:-vim}"
+
+	{ command -v git       || return
+	  command -v "$editor" || return
+	} >/dev/null
+
+	if [ -n "$project_dir" ]
+	then
+		cd "$project_dir"
+		if [ $? = 0 ]
+		then
+			$editor "$tempfile"
+			# Let git abord if we have not commit message
+			# than trying to introduce a `du'-like command
+			git commit -am "$(cat "$tempfile")"
+			rm -f "$tempfile"
+		fi
+	fi
 }
 
-switch()   { :; }
+switch() {
+	local project_dir=`_get_project_dir`
+
+	cd "$project_dir"
+	if [ $? = 0 ]
+	then
+		local branch="$(git branch | sed -e 's/^\*//' | eval "$seacher")"
+		if [ -n "$branch" ]
+		then
+			# Check for uncommitted changes
+			git checkout "$branch"
+		fi
+	fi
+}
 
 runner()   { :; }
 
 # Wrap all operations
 func_ops() {
+
+	[ -z `_get_project_dir` ] && return
+
 	local ops=$(
 	    printf "commit
 switch
@@ -571,8 +609,7 @@ push" | eval "$searcher")
 
 		case $ops in
 			select) __set_whxy $window_attributes_file_selector ;;
-			commit) __set_whxy $window_attributes_input_box ;;
-			runner | switch | explore | push) __set_whxy $window_attributes_rest ;;
+			commit | runner | switch | explore | push) __set_whxy $window_attributes_rest ;;
 		esac
 
 		tmux display-popup -w $w -h $h -x $x -y $y -E "/home/kueppo/projects/wfmux/src/wfmux $ops"
