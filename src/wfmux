@@ -72,6 +72,8 @@ readonly wfmux=$(cat<<EOF
 EOF
 )
 
+tok=tok
+gitlab_tok_name=gitlab_token_name
 wfmux_config="${config_dir%%/}/wfmux/wfmux.conf"
 use_xdg=yes
 runner=entr
@@ -116,18 +118,22 @@ Options:
      -c, -config, --config *FILE*  load *FILE* configuration file.
 
 Operation names:
-    open      fuzzyly select a project and open a new tmux session.
-    runner    set commands to run when files change.
-    explore   open your favorite file manager on a popup tmux pane.
-    select    fuzzyly select a file to open provided that they exist
-              a recently used tmux session which carries the name of your
-              project.
-    commit    add to the index and commit changes to local repository.
-    push      push to the preconfigured remote repositories.
-    switch    fuzzyly switch between branches of your local repository.
-    dump      dump wfmux's tmux configuration to stdout.
-    tmux      update wfmux's tmux configuration at ~/.tmux.conf.
-    ops       a wrapper to the above operations.
+    open         fuzzyly select a project and open a new tmux session.
+    watch        set commands to run when files change.
+    view         fancy view of any existing running project watcher.
+    explore      open your favorite file manager on a popup tmux pane.
+    select       fuzzyly select a file to open provided that they exist
+                 a recently used tmux session which carries the name of your
+                 project.   
+    commit       add to the index and commit changes to local repository.
+    acommit      replace the tip of the current branch by creating a new commit
+    push         push to the remote repositories.
+    fpush        force-push to the remote repositories.
+    switch       fuzzyly switch between branches of your local repository.
+    dump         dump wfmux's tmux configuration to stdout.
+    tmux         update wfmux's tmux configuration at ~/.tmux.conf.
+    ops          a wrapper to the above operations.
+    ssession     switch between project sessions
 EOF
 	exit $1
 }
@@ -151,7 +157,19 @@ main() {
 			[ $# -eq 1 ] && wfmux_config=$2 || usage 1
 			gave_config=true
 			shift ;;
-		push | commit | select | explore | auto | open | tmux | dump | ops)
+		push    | \
+		fpush   | \
+		commit  | \
+		acommit | \
+		select  | \
+		explore | \
+		auto    | \
+		open    | \
+		tmux    | \
+		dump    | \
+		ops     | \
+		switch  | \
+		sswitch)
 			operation=$1
 			if [ -f "$wfmux_config" ]
 			then
@@ -424,19 +442,21 @@ __set_whxy() {
 }
 
 _dump() {
+
 	__set_whxy $window_attributes_file_selector
-	cat <<-EOTX
-		unbind M-$tbind_select
-		bind M-$tbind_select if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux select"; }
-	EOTX
+	cat <<EOTX
+unbind M-$tbind_select
+bind M-$tbind_select if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux select"; }
+EOTX
 
 	__set_whxy $window_attributes_rest
-	cat <<-EOTX
-		unbind M-$tbind_explore
-		bind M-$tbind_explore if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux explore"; }
-		unbind M-$tbind_ops
-		bind M-$tbind_ops if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux ops"; }
-	EOTX
+	cat <<EOTX
+unbind M-$tbind_explore
+bind M-$tbind_explore if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux explore"; }
+unbind M-$tbind_ops
+bind M-$tbind_ops if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux ops"; }
+EOTX
+
 }
 
 func_dump() { _dump; }
@@ -450,6 +470,31 @@ _get_project_dir() {
 	then
 		local project_dir=`cat "$session/path"`
 		test -d "$project_dir" && printf "$project_dir"
+	fi
+}
+
+func_sswitch() {
+	local session_pbase=$(tmux list-sessions -F '#S' | while read sname; do 
+		session="$session_dir/$sname"
+		if [ -d "$session" ]; then
+			local project_dir=`cat "$session/path"`
+
+			if [ -d "$project_dir" ]; then
+				project_dir="$(printf "%s\n" "$project_dir" | sed -e 's,.*/\([^/]*/[^/]*\),\1,')"
+				printf "%s\n" "$sname:$project_dir"
+			fi
+		fi
+	done)
+	local pbasename="$(printf "$session_pbase" | cut -d: -f2 | eval "$searcher")"
+
+	if [ -n "$pbasename" ]
+	then
+		local session_name="$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)"
+		local pty="$(tmux list-clients -F '#S:#{client_tty}' | grep -F "$session_name:" | cut -d: -f2)"
+
+		# CAUTION: This is not a BUG!!! (note the head -n1)
+		# The differenciation level for every projects are the names of their parent directories only, not uptil the OS's root directory.
+		tmux switch-client -c "$pty" -t "$(printf "$session_pbase" | sed -ne "s,\(.*\):$pbasename,\1,p" | head -n1)"
 	fi
 }
 
@@ -477,6 +522,7 @@ func_select() {
 	file="$project_dir/$file"
 
 	_open_file_command() {
+
 		if [ x"$use_xdg" != xtrue ]
 		then
 			local mime
@@ -484,6 +530,7 @@ func_select() {
 
 			if [ $? = 0 ] && [ -n "$mime_type" ]
 			then
+
 				# The right program to open files of type 'application' can partly be determined
 				# with the aid of its subtype, like for example application/json, application/pdf, etc.
 				# therefore $mime should be the file's subtype in case the we have 'application' as mime
@@ -517,7 +564,7 @@ func_select() {
 	local torun=`_open_file_command`
 	if [ -n "$torun" ]
 	then
-		for wid in $(tmux list-window -F '#{window_activity}:#I' | sort -r -t: -k 1,1n | cut -d: -f2)
+		for wid in $(tmux list-window -F '#{window_activity}:#I' | sort -r -t: -k 1,1n | cut -d: -f2 | tac)
 		do
 			local panes="$(tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}')"
 			local bash_panes="$(printf "$panes" | grep "^${sh:-bash}:")"
@@ -549,8 +596,14 @@ func_select() {
 }
 
 func_commit() {
-	local project_dir=`_get_project_dir`
-	local tempfile=`mktemp /tmp/.git_XXXXXX`
+	__commit
+}
+
+func_acommit() {
+	__commit true
+}
+
+__commit() {
 	local editor="$(printf "$programs" | sed -ne 's/^[ \t]*text:[ \t]\+\(\w*\)$/\1/p')"
 
 	editor="${editor:-$EDITOR}"
@@ -560,56 +613,137 @@ func_commit() {
 	  command -v "$editor" || return
 	} >/dev/null
 
+	local project_dir=`_get_project_dir`
+
 	if [ -n "$project_dir" ]
 	then
 		cd "$project_dir"
 		if [ $? = 0 ]
 		then
-			$editor "$tempfile"
-			# Let git abord if we have not commit message
-			# than trying to introduce a `du'-like command
-			git commit -am "$(cat "$tempfile")"
-			rm -f "$tempfile"
+			local amend="${1:-false}"
+
+			git add .
+			if [ "$amend" = false ]
+			then
+				local tempfile=`mktemp /tmp/.git_XXXXXX`
+
+				$editor "$tempfile"
+				# Let git abord if we did not commit with a commit message
+				# than trying to introduce a `du'-like command
+				git commit "$(cat "$tempfile")"
+				rm -f "$tempfile"
+			else
+				git commit --amend
+			fi
 		fi
 	fi
 }
 
-switch() {
+func_switch() {
+	command -v git >/dev/null|| return
+
 	local project_dir=`_get_project_dir`
 
 	cd "$project_dir"
 	if [ $? = 0 ]
 	then
 		local branch="$(git branch | sed -e 's/^\*//' | eval "$seacher")"
+
 		if [ -n "$branch" ]
 		then
-			# Check for uncommitted changes
-			git checkout "$branch"
+			# Check if he/she commited before checking out
+			test `git status | wc -l` -eq 2 && git checkout "$branch"
 		fi
 	fi
 }
 
-runner()   { :; }
+func_push() {
+	__push
+}
 
-# Wrap all operations
+func_fpush() {
+	__push --force
+}
+
+__push() {
+	{ command -v git    || return
+	  command -v "$tok" || return
+	} >/dev/null
+
+	local project_name="$(basename `_get_project_dir`)"
+
+	if [ -n "$project_dir" ]
+	then
+		cd "$project_dir"
+		if [ $? -eq 0 ]
+		then
+			local remote="$(printf "$remote" | eval "$searcher")"
+
+			if [ -n "$remote" ]; then
+				local proto=https
+				local branch="$(git branch | sed -ne 's,^*\(.*\),\1,p')"
+				local tok="$(eval "$tok '$remote'")"
+
+				case $remote in
+					codeberg.org | github.com | github.com) proto=https ;;
+					*) proto=https ;;
+				esac
+				if [ "$remote" = "gitlab.org" ]
+				then
+					tok="$gitlab_tok_name:$tok"
+				fi
+
+				git push "$1" --set-upstream "$proto://$tok@$remote/$project_name.git" "$branch"
+			fi
+		fi
+	fi
+}
+
+# set up watchers
+func_watch() {
+	:;
+}
+
+# fancy view of the watchers
+func_view() {
+	:;
+}
+
+# Wrap all operations, plugins appear here
 func_ops() {
+
+	_load_plugins() {
+		:;
+	}
 
 	[ -z `_get_project_dir` ] && return
 
 	local ops=$(
 	    printf "commit
+acommit
 switch
 runner
 explore
 select
+sswitch
+fpush
 push" | eval "$searcher")
 
 	test -n "$ops" && {
 		trap '' HUP
 
 		case $ops in
-			select) __set_whxy $window_attributes_file_selector ;;
-			commit | runner | switch | explore | push) __set_whxy $window_attributes_rest ;;
+			select)
+				__set_whxy $window_attributes_file_selector ;;
+			commit  | \
+			acommit | \
+			runner  | \
+			switch  | \
+			explore | \
+			push    | \
+			fpush   | \
+			ssession)
+				__set_whxy $window_attributes_rest ;;
 		esac
 
 		tmux display-popup -w $w -h $h -x $x -y $y -E "/home/kueppo/projects/wfmux/src/wfmux $ops"
