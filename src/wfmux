@@ -83,7 +83,6 @@ dash_color=4
 explorer=nnn
 ignore=.git
 searcher='fzf --multi --border=bottom --margin=25%'
-searcher_open='fzf --multi --border=bottom --margin=25%'
 window_attributes_rest=20x20+10+20
 window_attributes_file_selector=20x20+10+20
 window_attributes_input_box=20x20+10+20
@@ -121,7 +120,7 @@ Options:
 Operation names:
     open         fuzzyly select a project and open a new tmux session.
     nsession     create a new project tmux session while in a tmux session.
-    sswitch      switch between project sessions
+    switch      switch between project sessions
     explore      open your favorite file manager on a popup tmux pane.
     select       fuzzyly select a file to open provided that they exist
                  a recently used tmux session which carries the name of your
@@ -130,7 +129,7 @@ Operation names:
     acommit      replace the tip of the current branch by creating a new commit
     push         push to the remote repositories.
     fpush        force-push to the remote repositories.
-    switch       fuzzyly switch between branches of your local repository.
+    branch       fuzzyly switch between branches of your local repository.
     dump         dump wfmux's tmux configuration to stdout.
     tmux         update wfmux's tmux configuration at ~/.tmux.conf.
     ops          a wrapper to the above operations.
@@ -178,9 +177,9 @@ func_main() {
 		dwatcher | \
 		ewatcher | \
 		rwatcher | \
-		switch   | \
+		branch   | \
 		nsession | \
-		sswitch)
+		switch)
 			operation=$1
 			if [ -f "$wfmux_config" ]
 			then
@@ -346,6 +345,14 @@ display_dashboard() {
 	tput clear
 }
 
+__get_cur_session() {
+	tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1
+}
+
+__get_pty() {
+	tmux list-clients -F '#S:#{client_tty}' | grep -F "$(__get_cur_session):" | cut -d: -f2
+}
+
 __new_session() {
 	locate_git_repos() {
 		find "$1" -mindepth 2 -type d -iname '.git' -exec expr '{}' : '\(.*\)/.git$' \;
@@ -353,7 +360,7 @@ __new_session() {
 
 	# TODO: cache search results
 	local project_list="$(printf "$project_directory\n" | while read pdir; do locate_git_repos "$pdir"; done | tee "$cache_pl")"
-	local project_name="$(printf "$project_list" | sed -nE 's,^.*/(.*)$,\1,p' | awk '{print "["NR"]:"$0}' | eval "$searcher_open")"
+	local project_name="$(printf "$project_list" | sed -nE 's,^.*/(.*)$,\1,p' | awk '{print "["NR"]:"$0}' | eval "$searcher")"
 
 	test -z "$project_name" && return
 
@@ -379,8 +386,7 @@ __new_session() {
 		then
 			if [ -n "$TMUX" ]
 			then
-				local cur_session="$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)"
-				local pty="$(tmux list-clients -F '#S:#{client_tty}' | grep -F "$cur_session:" | cut -d: -f2)"
+				local pty=`__get_pty`
 
 				_setup_session "$project_dir" "$session_name"&
 				tmux new-session -s "$session_name" -d
@@ -393,8 +399,7 @@ __new_session() {
 		else
 			if [ -n "$TMUX" ]
 			then
-				local cur_session="$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)"
-				local pty="$(tmux list-clients -F '#S:#{client_tty}' | grep -F "$cur_session:" | cut -d: -f2)"
+				local pty=`__get_pty`
 
 				tmux switch-client -c "$pty" -t "$session_name"
 			else
@@ -504,26 +509,33 @@ _get_project_dir() {
 	fi
 }
 
-func_sswitch() {
-	local session_pbase=$(tmux list-sessions -F '#S' | while read sname; do 
-		session="$session_dir/$sname"
+func_switch() {
 
-		if [ -d "$session" ]
-		then
-			project_dir=`cat "$session/path"`
-			if [ -d "$project_dir" ]
+	__get_session_dir_basename() {
+		local session project_dir
+
+		tmux list-sessions -F '#S' | 
+		while read sname
+		do 
+			session="$session_dir/$sname"
+			if [ -d "$session" ]
 			then
-				project_dir="$(printf "%s\n" "$project_dir" | sed -e 's,.*/\([^/]*/[^/]*\),\1,')"
-				printf "%s\n" "$sname:$project_dir"
+				project_dir=`cat "$session/path"`
+				if [ -d "$project_dir" ]
+				then
+					project_dir="$(printf "%s\n" "$project_dir" | sed -e 's,.*/\([^/]*/[^/]*\),\1,')"
+					printf "%s\n" "$sname:$project_dir"
+				fi
 			fi
-		fi
-	done)
+		done
+	}
+
+	local session_pbase=`__get_session_dir_basename`
 	local pbasename="$(printf "$session_pbase" | cut -d: -f2 | eval "$searcher")"
 
 	if [ -n "$pbasename" ]
 	then
-		local session_name="$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)"
-		local pty="$(tmux list-clients -F '#S:#{client_tty}' | grep -F "$session_name:" | cut -d: -f2)"
+		local pty=`__get_pty`
 
 		# CAUTION: This is not a BUG!!! (note the head -n1)
 		# The differenciation level for every projects are the names of their parent directories only, not uptil the OS's root directory.
@@ -672,7 +684,7 @@ __commit() {
 	fi
 }
 
-func_switch() {
+func_branch() {
 	command -v git >/dev/null|| return
 
 	local project_dir=`_get_project_dir`
@@ -680,13 +692,20 @@ func_switch() {
 	cd "$project_dir"
 	if [ $? = 0 ]
 	then
-		local branch="$(git branch | sed -e 's/^\*//' | eval "$searcher")"
+		if printf "$searcher\n" | grep -q '^fzf'
+		then
+			local searcher_old="$searcher"
+			searcher="$searcher --print-query"
+		fi
 
+		local branch="$(git branch | sed -e 's/^\*\? *//' | eval "$searcher" | tail -1)"
 		if [ -n "$branch" ]
 		then
 			# Check if he/she commited before checking out
-			[ `git status | wc -l` -eq 2 ] && git checkout "$branch"
+			[ `git status | wc -l` -eq 2 ] && git checkout -b "$branch"
 		fi
+
+		searcher="$old_searcher"
 	fi
 }
 
@@ -729,7 +748,7 @@ __push() {
 				fi
 
 				git push "$force" --set-upstream "$proto://$tok@$remote/$username/$project_name.git" "$branch"
-				printf "\nInput anything to quit!\n"
+				printf "\nInput anything to quit!"
 				stty -echo -cooked && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
 			fi
 		fi
@@ -800,7 +819,7 @@ func_ops() {
 	local ops=$(
 	    printf "commit
 acommit
-switch
+branch
 runner
 explore
 select
@@ -811,7 +830,7 @@ rwatcher
 view
 cycle
 nsession
-sswitch
+switch
 fpush
 push" | eval "$searcher")
 
@@ -824,7 +843,7 @@ push" | eval "$searcher")
 			commit   | \
 			acommit  | \
 			runner   | \
-			switch   | \
+			branch   | \
 			explore  | \
 			push     | \
 			fpush    | \
@@ -835,7 +854,7 @@ push" | eval "$searcher")
 			view     | \
 			cycle    | \
 			nsession | \
-			sswitch)
+			switch)
 				__set_whxy $window_attributes_rest ;;
 		esac
 
