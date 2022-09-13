@@ -2,7 +2,8 @@
 
 PM="${0##*/}"
 
-if [ $# -ne 2 ]; then
+if [ $# -ne 2 ]
+then
 	printf "usage: $PM <watcher_name> <watch_config>" >&2
 	exit 1
 fi
@@ -11,37 +12,22 @@ runner="$1"
 watcher_name="$2"
 watch_config="$3"
 
-if which "$runner" >/dev/null 2>&1; then
-	printf "%s: command '%s' not found\n" "$PM" "$runner" >&2
-fi
+{
+	which "$runner" >/dev/null 2>&1
+	[ $? -eq 0             ] && printf "%s: command '%s' not found\n"     "$PM" "$runner"       && exit 1
+	[ ! -f "$watch_config" ] && printf "%s: %s: isn't a valid file\n"     "$PM" "$watch_config" && exit 1
+	[ ! -e "$watch_config" ] && printf "%s: %s: does not exist\n"         "$PM" "$watch_config" && exit 1
+	[ ! -r "$watch_config" ] && printf "%s: %s: has no read permission\n" "$PM" "$watch_config" && exit 1
 
-if [ ! -f "$watch_config" ]; then
-	printf "%s: %s: is an invalid file\n" "$PM" "$watch_config" >&2
-	exit 1
-fi
-
-if [ ! -e "$watch_config" ]; then
-	printf "%s: %s: does not exist\n" "$PM" "$watch_config" >&2
-	exit 1
-fi
-
-if [ ! -r "$watch_config" ]; then
-	printf "%s: %s: has no read permission\n" "$PM" "$watch_config" >&2
-	exit 1
-fi
-
-cmd=`cat "$watch_config" | sed -nE "s/^s:[$watcher_name]: (.*)/\1/p"`
-
-if [ -z "$cmd" ]; then
-	printf "%s: unknown watcher '%s'" "$PM" "$cmd">&2
-	exit 1
-fi
+	cmd=`cat "$watch_config" | sed -nE "s/^s:[$watcher_name]: (.*):(e|d)$/\1/p"`
+	[ -z "$cmd" ] && printf "%s: unknown watcher '%s'" "$PM" "$cmd" && exit 1
+} >&2
 
 dump_paths() {
-	cat "$watch_config" | sed -E "/^s:[$watcher_name]/,/^e:[$watcher_name]/p" | tail -n +2 | sed '$d'
+	cat "$watch_config" | sed -E "/^s:[$watcher_name]:e/,/^e:[$watcher_name]:e/p" | tail -n +2 | sed '$d'
 }
 
 case "$runner" in
-entr) dump_paths | entr -nr $cmd ;;
-*) : ;;
+	entr) dump_paths | entr -nr $cmd ;;
+	*) : ;;
 esac

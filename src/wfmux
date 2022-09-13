@@ -120,8 +120,8 @@ Options:
 
 Operation names:
     open         fuzzyly select a project and open a new tmux session.
-    watch        set commands to run when files change.
-    view         fancy view of any existing running project watcher.
+    nsession     create a new project tmux session while in a tmux session.
+    sswitch      switch between project sessions
     explore      open your favorite file manager on a popup tmux pane.
     select       fuzzyly select a file to open provided that they exist
                  a recently used tmux session which carries the name of your
@@ -134,9 +134,14 @@ Operation names:
     dump         dump wfmux's tmux configuration to stdout.
     tmux         update wfmux's tmux configuration at ~/.tmux.conf.
     ops          a wrapper to the above operations.
-    ssession     switch between project sessions
+    dwatcher     disable a watcher from the watcher list
+    ewatcher     enable a watcher from the watcher list
+    awatcher     add a new watcher to the watcher list
+    rwatcher     remove a new watcher to the watcher list
+    view         fancy view of any existing running project watcher.
+
 EOF
-	exit $1
+	exit "$1"
 }
 
 die() {
@@ -158,19 +163,23 @@ func_main() {
 			[ $# -eq 1 ] && wfmux_config=$2 || usage 1
 			gave_config=true
 			shift ;;
-		push    | \
-		fpush   | \
-		commit  | \
-		acommit | \
-		select  | \
-		explore | \
-		open    | \
-		tmux    | \
-		dump    | \
-		ops     | \
-		view    | \
-		watch   | \
-		switch  | \
+		push     | \
+		fpush    | \
+		commit   | \
+		acommit  | \
+		select   | \
+		explore  | \
+		open     | \
+		tmux     | \
+		dump     | \
+		ops      | \
+		view     | \
+		awatcher | \
+		dwatcher | \
+		ewatcher | \
+		rwatcher | \
+		switch   | \
+		nsession | \
 		sswitch)
 			operation=$1
 			if [ -f "$wfmux_config" ]
@@ -254,8 +263,6 @@ check_config_variables() {
 }
 
 display_dashboard() {
-	local term_h=
-	local term_w=
 	local put_color="\033[3${dash_color:-9}m"
 	local max="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
 
@@ -277,7 +284,7 @@ display_dashboard() {
 	}
 
 	# save initial terminal setting and will set it back after exiting dashboard
-	init_stty="$(stty -g)"
+	local init_stty="$(stty -g)"
 	stty -cooked -echo time 0 min 1
 	printf "${alt_screen}${hide_cur}${clear_screen}"
 
@@ -335,12 +342,74 @@ display_dashboard() {
 	dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
 	kill -9 $! || : ## CAUTION: script would exit if set -e
 	stty "$init_stty"
-	printf "${unset_ansi}${show_cur}"
+	printf "$unset_ansi$show_cur"
 	tput clear
 }
 
-## select a project and open a tmux session
-## refer to usage() function for more information
+__new_session() {
+	locate_git_repos() {
+		find "$1" -mindepth 2 -type d -iname '.git' -exec expr '{}' : '\(.*\)/.git$' \;
+	}
+
+	# TODO: cache search results
+	local project_list="$(printf "$project_directory\n" | while read pdir; do locate_git_repos "$pdir"; done | tee "$cache_pl")"
+	local project_name="$(printf "$project_list" | sed -nE 's,^.*/(.*)$,\1,p' | awk '{print "["NR"]:"$0}' | eval "$searcher_open")"
+
+	test -z "$project_name" && return
+
+	local project_dir="$(printf "$project_list" | sed -n "$(expr "$project_name" : '\[\([0-9]\+\)\]:.*$')p")"
+	local session_name=`mktemp -u pr-XXXXXX`
+
+	# Check if session already exist
+	for i in "$session_dir"/*
+	do
+		local path="$i/path"
+		if [ -f "$path" ]
+		then
+			if [ `cat "$path"` = "$project_dir" ]
+			then
+				session_name=`basename "$i"`
+			fi
+		fi
+	done
+
+	# Start session with all its watchers
+	{
+		if ! tmux has-session -t "$session_name"
+		then
+			if [ -n "$TMUX" ]
+			then
+				local cur_session="$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)"
+				local pty="$(tmux list-clients -F '#S:#{client_tty}' | grep -F "$cur_session:" | cut -d: -f2)"
+
+				_setup_session "$project_dir" "$session_name"&
+				tmux new-session -s "$session_name" -d
+				tmux switch-client -c "$pty" -t "$session_name"
+			else
+				_setup_session "$project_dir" "$session_name"&
+				display_dashboard
+				tmux new-session -s "$session_name"
+			fi
+		else
+			if [ -n "$TMUX" ]
+			then
+				local cur_session="$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)"
+				local pty="$(tmux list-clients -F '#S:#{client_tty}' | grep -F "$cur_session:" | cut -d: -f2)"
+
+				tmux switch-client -c "$pty" -t "$session_name"
+			else
+				tmux attach-session -t "$session_name"
+			fi
+		fi
+	} 2>/dev/null
+}
+
+# Create a new project tmux session while in an existing session, similer to `func_open'
+func_nsession() {
+	__new_session
+}
+
+# Select a project and open a tmux session
 func_open() {
 	local session_name input
 
@@ -363,47 +432,7 @@ func_open() {
 	else
 		if [ -n "$(expr "$input" : '\(F\|f\)$')" ]
 		then
-			local project_list mcount
-
-			locate_git_repos() {
-				find "$1" -mindepth 2 -type d -iname '.git' -exec expr '{}' : '\(.*\)/.git$' \;
-			}
-
-			# TODO: cache search results
-			project_list="$(printf "$project_directory\n" | while read pdir; do locate_git_repos "$pdir"; done | tee "$cache_pl")"
-
-			project_name="$(printf "$project_list" | sed -nE 's,^.*/(.*)$,\1,p' | awk '{print "["NR"]:"$0}' | eval "$searcher_open")"
-			test -z "$project_name" && return
-
-			project_dir="$(printf "$project_list" | sed -n "$(expr "$project_name" : '\[\([0-9]\+\)\]:.*$')p")"
-			session_name=`mktemp -u pr-XXXXXX`
-
-			# Check if session already exist
-			for i in "$session_dir"/*
-			do
-				local path="$i/path"
-				if [ -f "$path" ]
-				then
-					if [ `cat "$path"` = "$project_dir" ]
-					then
-						session_name=`basename "$i"`
-					fi
-				fi
-			done
-
-			# Start session with all its watchers
-			{
-				if ! tmux has-session -t "$session_name"
-				then
-					display_dashboard
-					_setup_session "$project_dir" "$session_name"&
-					tmux new-session -s "$session_name"
-				else
-					# Assume the watchers have already been started and attach the session to the controlling terminal
-					tmux attach-session -t "$session_name"
-				fi
-			} 2>/dev/null
-
+			__new_session
 		elif [ -z "$input" ]
 		then
 			return 0
@@ -478,10 +507,12 @@ _get_project_dir() {
 func_sswitch() {
 	local session_pbase=$(tmux list-sessions -F '#S' | while read sname; do 
 		session="$session_dir/$sname"
-		if [ -d "$session" ]; then
-			local project_dir=`cat "$session/path"`
 
-			if [ -d "$project_dir" ]; then
+		if [ -d "$session" ]
+		then
+			project_dir=`cat "$session/path"`
+			if [ -d "$project_dir" ]
+			then
 				project_dir="$(printf "%s\n" "$project_dir" | sed -e 's,.*/\([^/]*/[^/]*\),\1,')"
 				printf "%s\n" "$sname:$project_dir"
 			fi
@@ -649,12 +680,12 @@ func_switch() {
 	cd "$project_dir"
 	if [ $? = 0 ]
 	then
-		local branch="$(git branch | sed -e 's/^\*//' | eval "$seacher")"
+		local branch="$(git branch | sed -e 's/^\*//' | eval "$searcher")"
 
 		if [ -n "$branch" ]
 		then
 			# Check if he/she commited before checking out
-			test `git status | wc -l` -eq 2 && git checkout "$branch"
+			[ `git status | wc -l` -eq 2 ] && git checkout "$branch"
 		fi
 	fi
 }
@@ -686,7 +717,7 @@ __push() {
 				local proto=https
 				local branch="$(git branch | sed -ne 's,^* \(.*\),\1,p')"
 				local tok="$(eval "$tok '${remote%%.*}'")"
-				local force=${1:---force}
+				local force="${1:---force}"
 
 				case $remote in
 					codeberg.org | github.com | github.com) proto=https ;;
@@ -698,18 +729,61 @@ __push() {
 				fi
 
 				git push "$force" --set-upstream "$proto://$tok@$remote/$username/$project_name.git" "$branch"
+				stty -echo && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
 			fi
 		fi
 	fi
 }
 
-# set up watchers
-func_watch() {
+# add a new watcher to the watcher list
+func_awatcher() {
+	local watcher_name files
+
+	printf "give a name to your watcher"
+	read watcher_name
+
+	if [ -n "$watcher_name" ]
+	then
+		# Check if this name already exists in the database
+		local session_name="$()"
+
+		if [ -z `` ]
+		then
+			files=$(
+				args="$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')"
+				eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $searcher"
+			)
+
+			if [ -n "$files" ]
+			then
+				:
+			fi
+		fi
+	fi
+}
+
+# disable watchers, don't run this watcher when creating tmux sessions
+func_dwatcher() {
+	:;
+}
+
+# enable watchers, should run when creating tmux session
+func_ewatchers() {
+	:;
+}
+
+# remove watchers from the watcher list
+func_rwatchers() {
 	:;
 }
 
 # fancy view of the watchers
 func_view() {
+	:;
+}
+
+# Cycle through stdout&stderr of watchers
+func_cycle() {
 	:;
 }
 
@@ -729,6 +803,13 @@ switch
 runner
 explore
 select
+dwatcher
+ewatcher
+awatcher
+rwatcher
+view
+cycle
+nsession
 sswitch
 fpush
 push" | eval "$searcher")
@@ -739,16 +820,21 @@ push" | eval "$searcher")
 		case $ops in
 			select)
 				__set_whxy $window_attributes_file_selector ;;
-			commit  | \
-			acommit | \
-			runner  | \
-			switch  | \
-			explore | \
-			push    | \
-			fpush   | \
-			watch   | \
-			view    | \
-			ssession)
+			commit   | \
+			acommit  | \
+			runner   | \
+			switch   | \
+			explore  | \
+			push     | \
+			fpush    | \
+			dwatcher | \
+			ewatcher | \
+			awatcher | \
+			rwatcher | \
+			view     | \
+			cycle    | \
+			nsession | \
+			sswitch)
 				__set_whxy $window_attributes_rest ;;
 		esac
 

@@ -1,0 +1,23 @@
+### See License file for copyright and license details.
+
+# C & ExtUtils::MakeMaker
+make clean && make
+gcc *.c -o ./myprog
+
+# Perl
+## Module::Build commands
+./Build
+./Build test
+./Build install
+./Build && ./Build test && ./Build install
+
+## ExtUtils::MakeMaker
+perl Makefile.PL && make test
+make install
+
+# Raku
+# NodeJs
+# Docker
+# Kubernetes
+# Ansible
+# ....
