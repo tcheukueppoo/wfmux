@@ -723,13 +723,14 @@ __push() {
 					codeberg.org | github.com | github.com) proto=https ;;
 					*) proto=https ;;
 				esac
-				if [ "$remote" = "gitlab.org" ]
+				if [ "$remote" = "gitlab.com" ]
 				then
 					tok="$gitlab_tok_name:$tok"
 				fi
 
 				git push "$force" --set-upstream "$proto://$tok@$remote/$username/$project_name.git" "$branch"
-				stty -echo && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
+				printf "\nInput anything to quit!\n"
+				stty -echo -cooked && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
 			fi
 		fi
 	fi
