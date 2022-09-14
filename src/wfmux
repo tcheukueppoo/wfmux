@@ -495,8 +495,13 @@ EOTX
 
 }
 
-func_dump() { _dump; }
-func_tmux() { _dump >> "$tmux_conf"; }
+func_dump() {
+	_dump
+}
+
+func_tmux() {
+	_dump >>"$tmux_conf"
+}
 
 _get_project_dir() {
 	local session_name=$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)
@@ -685,27 +690,27 @@ __commit() {
 }
 
 func_branch() {
-	command -v git >/dev/null|| return
+	command -v git >/dev/null || return
 
 	local project_dir=`_get_project_dir`
 
 	cd "$project_dir"
 	if [ $? = 0 ]
 	then
-		if printf "$searcher\n" | grep -q '^fzf'
+		if printf "%s\n" "$searcher" | grep -q '^fzf'
 		then
-			local searcher_old=$searcher
+			local old_searcher=$searcher
 			searcher="$searcher --print-query"
 		fi
 
-		local branch=$(git branch | sed -e 's/^\*\? *//' | eval "$searcher" | tail -1)
+		local branch=$(git branch | sed -e 's/^\*\? *//' | eval "$searcher" | tail -n1)
 		if [ -n "$branch" ]
 		then
 			# Check if he/she commited before checking out
-			git status | sed -ne '2p' | grep -q '^nothing to commit' 
+			git status | tail -n1 | grep -q '^nothing to commit' 
 			if [ $? -eq 0 ]
 			then
-				git checkout -b "$branch"
+				git checkout "$branch" || git checkout -b "$branch"
 			fi
 		fi
 
@@ -751,7 +756,7 @@ __push() {
 					tok="$gitlab_tok_name:$tok"
 				fi
 
-				git push "$force" --set-upstream "$proto://$tok@$remote/$username/$project_name.git" "$branch"
+				git push "$force" "$proto://$tok@$remote/$username/$project_name.git" "$branch"
 				printf "\nInput anything to quit!"
 				stty -echo -cooked && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
 			fi
