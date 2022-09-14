@@ -283,7 +283,7 @@ display_dashboard() {
 	}
 
 	# save initial terminal setting and will set it back after exiting dashboard
-	local init_stty="$(stty -g)"
+	local init_stty=$(stty -g)
 	stty -cooked -echo time 0 min 1
 	printf "${alt_screen}${hide_cur}${clear_screen}"
 
@@ -294,8 +294,8 @@ display_dashboard() {
 				sleep 2
 				continue
 			fi
-			term_h="$(stty -F /dev/tty size | cut -d' ' -f1)"
-			term_w="$(stty -F /dev/tty size | cut -d' ' -f2)"
+			term_h=$(stty -F /dev/tty size | cut -d' ' -f1)
+			term_w=$(stty -F /dev/tty size | cut -d' ' -f2)
 			if   [ $term_h -lt 32 -o $term_w -lt 97  ]
 			then
 				_size=ss
@@ -308,15 +308,15 @@ display_dashboard() {
 			eval 'logo_h=$(printf "$logo_'$_size'" | wc -l);
 				  logo_w=$(printf "$logo_'$_size'" | eval "$max")'
 
-			logo_h="$(expr $logo_h + `_gen_key_helper | wc -l`)"
-			gen_w="$(_gen_key_helper | eval "$max")"
-			x="$(expr $term_w / 2 - $logo_w / 2)"
-			y="$(expr $term_h / 2 - $logo_h / 2)"
+			logo_h=$(expr $logo_h + `_gen_key_helper | wc -l`)
+			gen_w=$(_gen_key_helper | eval "$max")
+			x=$(expr $term_w / 2 - $logo_w / 2)
+			y=$(expr $term_h / 2 - $logo_h / 2)
 			if [ $gen_w -gt $logo_w ]
 			then
-				gen_x="$(expr $x - \( $gen_w  - $logo_w \) / 2)"
+				gen_x=$(expr $x - \( $gen_w  - $logo_w \) / 2)
 			else
-				gen_x="$(expr $x + \( $logo_w - $gen_w  \) / 2)"
+				gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
 			fi
 
 			printf "${clear_screen}${put_color}${bold}"
@@ -324,13 +324,13 @@ display_dashboard() {
 				while read i
 				do
 					_print $y $x "$(printf "$i" | tr 'x' ' ')"
-					y="$(($y+1))"
+					y=$(($y+1))
 				done
 
 				printf "$unset_ansi"
 				_gen_key_helper | while read i
 				do
-					y="$(($y+1))"
+					y=$(($y+1))
 					_print "$y" "$gen_x" "$i"
 				done
 			}
@@ -359,12 +359,12 @@ __new_session() {
 	}
 
 	# TODO: cache search results
-	local project_list="$(printf "$project_directory\n" | while read pdir; do locate_git_repos "$pdir"; done | tee "$cache_pl")"
-	local project_name="$(printf "$project_list" | sed -nE 's,^.*/(.*)$,\1,p' | awk '{print "["NR"]:"$0}' | eval "$searcher")"
+	local project_list=$(printf "$project_directory\n" | while read pdir; do locate_git_repos "$pdir"; done | tee "$cache_pl")
+	local project_name=$(printf "$project_list" | sed -nE 's,^.*/(.*)$,\1,p' | awk '{print "["NR"]:"$0}' | eval "$searcher")
 
 	test -z "$project_name" && return
 
-	local project_dir="$(printf "$project_list" | sed -n "$(expr "$project_name" : '\[\([0-9]\+\)\]:.*$')p")"
+	local project_dir=$(printf "$project_list" | sed -n "$(expr "$project_name" : '\[\([0-9]\+\)\]:.*$')p")
 	local session_name=`mktemp -u pr-XXXXXX`
 
 	# Check if session already exist
@@ -429,7 +429,7 @@ func_open() {
 
 	if [ -n "$(expr "$input" : '\([0-9][0-9]*\)$')" ]
 	then
-		session_name="$(tmux list-sessions -F '#S' | sed -n "${input}p")"
+		session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
 		if [ -n "$session_name" ]
 		then
 			tmux attach-session -t "$session_name"
@@ -471,10 +471,10 @@ _setup_session() {
 __set_whxy() {
 	local window_attributes="$1"
 
-	y="$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)$/\1/')"
-	x="$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)+.*/\1/')"
-	w="$(printf "$window_attributes" | sed -e 's/^\([0-9]\+\)x.*/\1/')"
-	h="$(printf "$window_attributes" | sed -e 's/^.*x\([0-9]\+\).*/\1/')"
+	y=$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)$/\1/')
+	x=$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)+.*/\1/')
+	w=$(printf "$window_attributes" | sed -e 's/^\([0-9]\+\)x.*/\1/')
+	h=$(printf "$window_attributes" | sed -e 's/^.*x\([0-9]\+\).*/\1/')
 }
 
 _dump() {
@@ -499,7 +499,7 @@ func_dump() { _dump; }
 func_tmux() { _dump >> "$tmux_conf"; }
 
 _get_project_dir() {
-	local session_name="$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)"
+	local session_name=$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)
 	local session="$session_dir/$session_name"
 
 	if [ -d "$session" ]
@@ -523,7 +523,7 @@ func_switch() {
 				project_dir=`cat "$session/path"`
 				if [ -d "$project_dir" ]
 				then
-					project_dir="$(printf "%s\n" "$project_dir" | sed -e 's,.*/\([^/]*/[^/]*\),\1,')"
+					project_dir=$(printf "%s\n" "$project_dir" | sed -e 's,.*/\([^/]*/[^/]*\),\1,')
 					printf "%s\n" "$sname:$project_dir"
 				fi
 			fi
@@ -531,7 +531,7 @@ func_switch() {
 	}
 
 	local session_pbase=`__get_session_dir_basename`
-	local pbasename="$(printf "$session_pbase" | cut -d: -f2 | eval "$searcher")"
+	local pbasename=$(printf "$session_pbase" | cut -d: -f2 | eval "$searcher")
 
 	if [ -n "$pbasename" ]
 	then
@@ -559,7 +559,7 @@ func_select() {
 	test -d "$project_dir" || return
 
 	file=$(
-		args="$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')"
+		args=$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
 		eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $searcher"
 	)
 
@@ -571,7 +571,7 @@ func_select() {
 		if [ x"$use_xdg" != xtrue ]
 		then
 			local mime
-			local mime_type="$(xdg-mime query filetype "$file")"
+			local mime_type=$(xdg-mime query filetype "$file")
 
 			if [ $? = 0 ] && [ -n "$mime_type" ]
 			then
@@ -582,7 +582,7 @@ func_select() {
 				# type otherwise its type is the best option.
 				test "${mime_type%/*}" = application && mime="${mime_type#*/}" || mime="${mime_type%/*}"
 
-				local opener="$(printf "$programs" | sed -ne "s/^$mime:[[:space:]]*\([^[:space:]]*\)/\1/p")"
+				local opener=$(printf "$programs" | sed -ne "s/^$mime:[[:space:]]*\([^[:space:]]*\)/\1/p")
 				opener="${opener:-$EDITOR}"
 				opener="${opener:-vim}"
 
@@ -611,17 +611,17 @@ func_select() {
 	then
 		for wid in $(tmux list-window -F '#{window_activity}:#I' | sort -r -t: -k 1,1n | cut -d: -f2 | tac)
 		do
-			local panes="$(tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}')"
-			local bash_panes="$(printf "$panes" | grep "^${sh:-bash}:")"
+			local panes=$(tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}')
+			local bash_panes=$(printf "$panes" | grep "^${sh:-bash}:")
 
 			if [ -n "$bash_panes" ]
 			then
 				# is it an idle active pane?
-				local bash_id="$(printf "$bash_panes" | sed -nE 's/.*:([0-9]+):1$/\1/p')"
+				local bash_id=$(printf "$bash_panes" | sed -nE 's/.*:([0-9]+):1$/\1/p')
 				if [ -z "$bash_id" ]
 				then
 					# take the most recently opened idle pane
-					bash_id="$(printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2)"
+					bash_id=$(printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2)
 				fi
 
 				tmux send-keys -t "$wid.$bash_id" "$torun" C-m
@@ -649,7 +649,7 @@ func_acommit() {
 }
 
 __commit() {
-	local editor="$(printf "$programs" | sed -ne 's/^[ \t]*text:[ \t]\+\(\w*\)$/\1/p')"
+	local editor=$(printf "$programs" | sed -ne 's/^[ \t]*text:[ \t]\+\(\w*\)$/\1/p')
 
 	editor="${editor:-$EDITOR}"
 	editor="${editor:-vim}"
@@ -698,7 +698,7 @@ func_branch() {
 			searcher="$searcher --print-query"
 		fi
 
-		local branch="$(git branch | sed -e 's/^\*\? *//' | eval "$searcher" | tail -1)"
+		local branch=$(git branch | sed -e 's/^\*\? *//' | eval "$searcher" | tail -1)
 		if [ -n "$branch" ]
 		then
 			# Check if he/she commited before checking out
@@ -723,19 +723,19 @@ __push() {
 	} >/dev/null
 
 	local project_dir=`_get_project_dir`
-	test -n "$project_dir" && project_name="$(basename "$project_dir")"
+	test -n "$project_dir" && project_name=$(basename "$project_dir")
 
 	if [ -n "$project_name" ]
 	then
 		cd "$project_dir"
 		if [ $? -eq 0 ]
 		then
-			local remote="$(printf "$remote" | eval "$searcher")"
+			local remote=$(printf "$remote" | eval "$searcher")
 
 			if [ -n "$remote" ]; then
 				local proto=https
-				local branch="$(git branch | sed -ne 's,^* \(.*\),\1,p')"
-				local tok="$(eval "$tok '${remote%%.*}'")"
+				local branch=$(git branch | sed -ne 's,^* \(.*\),\1,p')
+				local tok=$(eval "$tok '${remote%%.*}'")
 				local force="${1:---force}"
 
 				case $remote in
@@ -765,12 +765,12 @@ func_awatcher() {
 	if [ -n "$watcher_name" ]
 	then
 		# Check if this name already exists in the database
-		local session_name="$()"
+		local session_name=$()
 
 		if [ -z `` ]
 		then
 			files=$(
-				args="$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')"
+				args=$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
 				eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $searcher"
 			)
 
