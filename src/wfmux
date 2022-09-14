@@ -11,9 +11,9 @@ readonly clear_screen='\033[2J'
 readonly bold='\033[1m'
 readonly unset_ansi='\033[0m'
 readonly program=${0##*/}
-readonly config_dir="${XDG_CONFIG_HOME:-"$HOME/.config"}"
+readonly config_dir=${XDG_CONFIG_HOME:-"$HOME/.config"}
 readonly wfmux_config_dir="${config_dir%%/}/wfmux/"
-readonly cache_dir="${XDG_CACHE_HOME:-"$HOME/.cache"}"
+readonly cache_dir=${XDG_CACHE_HOME:-"$HOME/.cache"}
 readonly cache="${cache_dir%%/}/wfmux"
 readonly cache_pl="${cache_dir}/wfmux.pl"
 readonly session_dir="${cache_dir%%/}/wfmux/sessions"
@@ -448,7 +448,7 @@ func_open() {
 }
 
 _setup_session() {
-	local project_dir="$1"
+	local project_dir=$1
 	local project_session="$session_dir/$2"
 
 	mkdir -p "$project_session"
@@ -469,7 +469,7 @@ _setup_session() {
 }
 
 __set_whxy() {
-	local window_attributes="$1"
+	local window_attributes=$1
 
 	y=$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)$/\1/')
 	x=$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)+.*/\1/')
@@ -580,11 +580,11 @@ func_select() {
 				# with the aid of its subtype, like for example application/json, application/pdf, etc.
 				# therefore $mime should be the file's subtype in case the we have 'application' as mime
 				# type otherwise its type is the best option.
-				test "${mime_type%/*}" = application && mime="${mime_type#*/}" || mime="${mime_type%/*}"
+				test "${mime_type%/*}" = application && mime=${mime_type#*/} || mime="${mime_type%/*}"
 
 				local opener=$(printf "$programs" | sed -ne "s/^$mime:[[:space:]]*\([^[:space:]]*\)/\1/p")
-				opener="${opener:-$EDITOR}"
-				opener="${opener:-vim}"
+				opener=${opener:-$EDITOR}
+				opener=${opener:-vim}
 
 				{ 
 					which "$opener" 1>&2
@@ -651,8 +651,8 @@ func_acommit() {
 __commit() {
 	local editor=$(printf "$programs" | sed -ne 's/^[ \t]*text:[ \t]\+\(\w*\)$/\1/p')
 
-	editor="${editor:-$EDITOR}"
-	editor="${editor:-vim}"
+	editor=${editor:-$EDITOR}
+	editor=${editor:-vim}
 
 	{ command -v git       || return
 	  command -v "$editor" || return
@@ -665,7 +665,7 @@ __commit() {
 		cd "$project_dir"
 		if [ $? = 0 ]
 		then
-			local amend="${1:-false}"
+			local amend=${1:-false}
 
 			git add .
 			if [ "$amend" = false ]
@@ -694,7 +694,7 @@ func_branch() {
 	then
 		if printf "$searcher\n" | grep -q '^fzf'
 		then
-			local searcher_old="$searcher"
+			local searcher_old=$searcher
 			searcher="$searcher --print-query"
 		fi
 
@@ -705,7 +705,7 @@ func_branch() {
 			[ `git status | wc -l` -eq 4 ] && git checkout -b "$branch"
 		fi
 
-		searcher="$old_searcher"
+		searcher=$old_searcher
 	fi
 }
 
@@ -736,7 +736,7 @@ __push() {
 				local proto=https
 				local branch=$(git branch | sed -ne 's,^* \(.*\),\1,p')
 				local tok=$(eval "$tok '${remote%%.*}'")
-				local force="${1:---force}"
+				local force=${1:---force}
 
 				case $remote in
 					codeberg.org | github.com | github.com) proto=https ;;
