@@ -702,7 +702,11 @@ func_branch() {
 		if [ -n "$branch" ]
 		then
 			# Check if he/she commited before checking out
-			[ `git status | wc -l` -eq 4 ] && git checkout -b "$branch"
+			git status | sed -ne '2p' | grep -q '^nothing to commit' 
+			if [ $? -eq 0 ]
+			then
+				git checkout -b "$branch"
+			fi
 		fi
 
 		searcher=$old_searcher
