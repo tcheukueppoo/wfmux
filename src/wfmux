@@ -506,7 +506,7 @@ func_tmux() {
 }
 
 __get_project_dir() {
-	local session_name=$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)
+	local session_name=`__get_cur_session`
 	local session="$session_dir/$session_name"
 
 	if [ -d "$session" ]
@@ -517,9 +517,9 @@ __get_project_dir() {
 }
 
 func_switch() {
-	local cur_session=`__get_cur_session`
+	local base_dir=$(basename `__get_project_dir`)
 
-	__get_session_dir_basename() {
+	__get_projects_basenames() {
 		local session
 		local project_dir
 
@@ -535,12 +535,13 @@ func_switch() {
 					printf "%s\n" "$sname:$project_dir"
 				fi
 			fi
-		done | sed -e "s/$cur_//"
+		done | sed -e "s,/\($base_dir\)$,/\1*,"
 	}
 
-	local session_pbase=`__get_session_dir_basename`
+	local session_pbase=`__get_projects_basenames`
 	local pbasename=$(printf "$session_pbase" | cut -d: -f2 | eval "$searcher")
 
+	pbasename=${pbasename%*}
 	if [ -n "$pbasename" ]
 	then
 		local pty=`__get_pty`
@@ -743,7 +744,17 @@ __push() {
 		cd "$project_dir"
 		if [ $? -eq 0 ]
 		then
+			local username
 			local remotes=$(printf "$wfmux_remote" | eval "$searcher")
+			local session_path="$session_dir/$(__get_cur_session)"
+
+			if [  -s "$session_path" ]
+			then
+				username=$(printf "$wfmux_users" | eval "$searcher")
+				printf "$username" >"$session_path/user"
+			else
+				username=$(cat "$session_path/user")
+			fi
 
 			if [ -n "$remotes" ]; then
 				local force=${1:---force}
