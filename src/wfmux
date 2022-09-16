@@ -744,12 +744,12 @@ __push() {
 			local remotes=$(printf "$wfmux_remote" | eval "$searcher")
 			local session_path="$session_dir/$(__get_cur_session)"
 
-			if [  -s "$session_path" ]
+			if [ -s "$session_path" ]
 			then
+				username=$(cat "$session_path/user")
+			else
 				username=$(printf "$wfmux_users" | eval "$searcher")
 				printf "$username" >"$session_path/user"
-			else
-				username=$(cat "$session_path/user")
 			fi
 
 			if [ -n "$remotes" ]; then
