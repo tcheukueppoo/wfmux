@@ -1,0 +1,20 @@
+s+:[test] ./Build && ./Build test 
+
+/home/kueppo/projects/Term-Matrix/xt/boilerplate.t
+/home/kueppo/projects/Term-Matrix/t/00-load.t
+/home/kueppo/projects/Term-Matrix/t/pod.t
+/home/kueppo/projects/Term-Matrix/t/pod-coverage.t
+/home/kueppo/projects/Term-Matrix/t/manifest.t
+
+e:
+
+s-
+e
+
+s+
+
+e
+
+s-
+
+e

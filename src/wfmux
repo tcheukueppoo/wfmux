@@ -460,9 +460,9 @@ _setup_session() {
 	if [ -f "$watch_config" ]
 	then
 		local fifo
-		for i in `cat "$watch_config" | sed -ne 's/^s:\[\(.*\)\].*/\1/p'`
+		for i in `cat "$watch_config" | sed -ne 's/^s+:\[\(.*\)\].*/\1/p'`
 		do
-			# You would be seeing results of watchers via named-pipes
+			# You would be seeing std(out|err) of watchers via named-pipes
 			fifo="$project_session/${i}_fifo"
 			test -p "$fifo" || mkfifo "$fifo"
 			#wxwatch "$runner" "$i" "$watch_config" >"$fifo" &
@@ -575,7 +575,7 @@ func_select() {
 	test -n "$file" || return
 	file="$project_dir/$file"
 
-	__give_or_do_it() {
+	__give_it_or_do_it() {
 
 		if [ x"$use_xdg" != xtrue ]
 		then
@@ -591,8 +591,7 @@ func_select() {
 				opener=${opener:-$EDITOR}
 				opener=${opener:-vim}
 				{ 
-					which "$opener" 1>&2
-					if [ $? -eq 0 ]  
+					if which "$opener" 1>&2
 					then
 						# Put in list of all TUI applications that takes a $file as argument
 						if printf "$opener" | grep -qE '^vim|ranger|cmus|nvim|nnn|kak$'
@@ -610,38 +609,35 @@ func_select() {
 		fi
 	}
 
-	local command=`__give_or_do_it`
+	local command=`__give_it_or_do_it`
 	if [ -n "$command" ]
 	then
 		# start from the most active, ignore the previous one
-		local active_win=$(tmux list-windows -F '#{window_activity}:#I' | sort -r -t: -k1,1n | cut -d: -f2 | tac | head -n1)
-
-		for i in $(tmux list-windows -F '#I' | awk "\$1 >= $active_win" | sort -h)
+		for window_index in $(tmux list-windows -F '#I:#{window_active}' | awk -F[':'] '$2 == 1{pass = 1}; pass == 1{print $1}')
 		do
-			echo "we got $i"
-			local panes=$(tmux list-panes -t "$i" -F '#{pane_current_command}:#P:#{pane_active}')
+			local panes=$(tmux list-panes -t "$window_index" -F '#{pane_current_command}:#P:#{pane_active}')
 			local bash_panes=$(printf "$panes" | grep "^${sh:-bash}:")
 
 			# is it an active pane idle? if no then
 			# take the most recently opened idle pane
 			if [ -n "$bash_panes" ]
 			then
-				local bash_id=$(printf "$bash_panes" | sed -nE 's/.*:([0-9]+):1$/\1/p')
-				test -z "$bash_id" && bash_id=$(printf "$bash_panes" | sort -t: -k2,2n | head -n1 | cut -d: -f2)
+				local bash_index=$(printf "$bash_panes" | sed -nE 's/.*:([0-9]+):1$/\1/p')
+				test -z "$bash_index" && bash_index=$(printf "$bash_panes" | sort -t: -k2,2n | head -n1 | cut -d: -f2)
 
-				tmux send-keys -t "$i.$bash_id" "$command" C-m
+				tmux send-keys -t "$window_index.$bash_index" "$command" C-m
 				test $? -eq 0 && new_window=false && break
 			else
 				if [ `printf '%s\n' "$panes" | wc -l` -eq 1 ]
 				then
-					tmux select-window -t "$i"
+					tmux select-window -t "$window_index"
 					tmux split-window  -h "$command"
 					test $? -eq 0 && new_window=false && break
 				fi
 			fi
 		done
 
-		test x$new_window = x"true" && tmux new-window "$(__give_or_do_it)"
+		test x$new_window = x"true" && tmux new-window "$(__give_it_or_do_it)"
 	fi
 }
 
@@ -704,10 +700,11 @@ func_branch() {
 		fi
 
 		local branch=$(git branch | sed -e 's/^\(\*\?\) *\(.*\)$/\2\1/' | eval "$searcher" | tail -n1)
+
 		branch=${branch%*}
 		if [ -n "$branch" ]
 		then
-			# Check if he/she commited before checking out
+			# Check if the current working branch is clean(nothing to commit)
 			git status | tail -n1 | grep -q '^nothing to commit' 
 			if [ $? -eq 0 ]
 			then
@@ -799,12 +796,12 @@ __push() {
 func_awatcher() {
 	local watcher_name files
 
-	printf "give a name to your watcher"
+	printf "Give a name to your watcher: "
 	read watcher_name
 
 	if [ -n "$watcher_name" ]
 	then
-		# Check if this name already exists in the database
+		# Check if this name already exists in the watcher list database
 		local session_name=$()
 
 		if [ -z `` ]
