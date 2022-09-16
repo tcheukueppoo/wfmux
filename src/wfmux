@@ -12,7 +12,8 @@ readonly bold='\033[1m'
 readonly unset_ansi='\033[0m'
 readonly program=${0##*/}
 readonly config_dir=${XDG_CONFIG_HOME:-"$HOME/.config"}
-readonly wfmux_config_dir="${config_dir%%/}/wfmux/"
+readonly wfmux_config_dir="${config_dir%%/}/wfmux"
+readonly runs="$wfmux_config_dir/runs"
 readonly cache_dir=${XDG_CACHE_HOME:-"$HOME/.cache"}
 readonly cache="${cache_dir%%/}/wfmux"
 readonly cache_pl="${cache_dir}/wfmux.pl"
@@ -75,7 +76,7 @@ EOF
 username=username
 tok=tok
 gitlab_tok_name=gitlab_token_name
-wfmux_config="${config_dir%%/}/wfmux/wfmux.conf"
+wfmux_config="$wfmux_config_dir/wfmux.conf"
 use_xdg=yes
 runner=entr
 runner_templates="$HOME/.config/wfmux/rtemplate"
@@ -416,6 +417,46 @@ func_nsession() {
 	__new_session
 }
 
+_setup_session() {
+	local project_dir=$1
+	local session_name=$2
+	local project_session="$session_dir/$session_name"
+
+	mkdir -p "$project_session"
+	printf "$project_dir" >"$project_session/path"
+
+	local watch_config="$project_session/watch"
+	if [ -f "$watch_config" ]
+	then
+		local fifo
+		for pairs in `cat "$watch_config" | sed -ne 's/^s+:\[\(.*\)\] *\(.\+\) *$/(\1)\2/p'`
+		do
+			local cmd=${pairs#(*)}
+			local watcher_name=${pairs%%)*}
+
+			watcher_name=${pairs#(}
+
+			# You would be seeing the std(out|err) of watchers via named-pipes
+			fifo="$project_session/$watcher_name.fifo"
+			test -p "$fifo" || mkfifo "$fifo"
+
+			{ trap '' HUP
+			  cat "$watch_config" \
+				| sed -ne "/^s+:[$watcher_name]/,/^e:[$watcher_name]/p" \
+				| tail -n +2 \
+				| sed '$d' \
+				| 
+				  case $runner in
+				   entr) entr -nr "$cmd" ;;
+				   *) : ;;
+				  esac >"$fifo"
+			} &
+
+			printf "$!" >"$project_session/$watcher_name.pid"
+		done
+	fi
+}
+
 # Select a project and open a tmux session
 func_open() {
 	local session_name input
@@ -446,27 +487,6 @@ func_open() {
 		else
 			tmux new-session -s "$(printf "$input")"
 		fi
-	fi
-}
-
-_setup_session() {
-	local project_dir=$1
-	local project_session="$session_dir/$2"
-
-	mkdir -p "$project_session"
-	printf "$project_dir" >"$project_session/path"
-
-	local watch_config="$project_session/watch"
-	if [ -f "$watch_config" ]
-	then
-		local fifo
-		for i in `cat "$watch_config" | sed -ne 's/^s+:\[\(.*\)\].*/\1/p'`
-		do
-			# You would be seeing std(out|err) of watchers via named-pipes
-			fifo="$project_session/${i}_fifo"
-			test -p "$fifo" || mkfifo "$fifo"
-			#wxwatch "$runner" "$i" "$watch_config" >"$fifo" &
-		done
 	fi
 }
 
@@ -523,8 +543,8 @@ func_switch() {
 		local session
 		local project_dir
 
-		tmux list-sessions -F '#S' | while read sname; do
-
+		tmux list-sessions -F '#S' | while read sname
+		do
 			session="$session_dir/$sname"
 			if [ -d "$session" ]
 			then
@@ -532,10 +552,10 @@ func_switch() {
 				if [ -d "$project_dir" ]
 				then
 					project_dir=$(printf "%s\n" "$project_dir" | sed -e 's,.*/\([^/]*/[^/]*\),\1,')
-					printf "%s\n" "$sname:$project_dir"
+					printf "%s\n" "$sname:$project_dir" | sed -e "s,/\($base_dir\)$,/\1*,"
 				fi
 			fi
-		done | sed -e "s,/\($base_dir\)$,/\1*,"
+		done
 	}
 
 	local session_pbase=`__get_projects_basenames`
@@ -716,6 +736,11 @@ func_branch() {
 	fi
 }
 
+__input_to_exit() {
+	printf "\nPress anything to quit!"
+	stty -echo -cooked && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
+}
+
 func_push() {
 	__push
 }
@@ -779,42 +804,59 @@ __push() {
 					git push "$force" --set-upstream "$proto://$my_tok@$remote/$username/$project_name.git" "$branch" >/dev/null 2>&1 || failed=Yes
 					kill -KILL $!
 
-					test x"$failed" = x"Yes" && c=1mFailed || c=4mDone
+					test x"$failed" = x"Yes" && c=1mFailed || c=${dash_color}mDone
 					printf "\b\033[1;3%s\033[0m\n" "$c"
 				done
 
 				# To avoid saving tokens!
 				printf "$git_config" > .git/config
-				printf "\nPress anything to quit!"
-				stty -echo -cooked && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
+				__input_to_exit
 			fi
 		fi
 	fi
 }
 
-# add a new watcher to the watcher list
+# Add a new watcher to the watcher list
 func_awatcher() {
-	local watcher_name files
+	local watcher_name
+	local watch_config="$session_dir/`__get_cur_session`"
 
 	printf "Give a name to your watcher: "
 	read watcher_name
 
 	if [ -n "$watcher_name" ]
 	then
-		# Check if this name already exists in the watcher list database
-		local session_name=$()
-
-		if [ -z `` ]
+		# Check if this name already exists in the watcher list
+		cat "$watch_config" | grep "s[-+]:\[$watcher_name\]"
+		if [ $? -ne 0 ]
 		then
-			files=$(
+			local files=$(
 				args=$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
 				eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $searcher"
 			)
 
 			if [ -n "$files" ]
 			then
-				:
+				local cmd=$(cat "$runs" | eval "$searcher")
+				echo "writing to $watch_config"
+				if [ -r "$runs" ]
+				then
+					cat <<-EOF >>"$watch_config"
+
+					s+[$watcher_name] $cmd
+					$files
+					e[$watcher_name]
+					EOF
+					printf "\033[1;${dash_color}m"
+					printf "'${watcher_name}' was successfully added to the list of watchers\n"
+				else
+					printf "\033[1;31m"
+					printf "Cannot find the list of commands.\n" >&2
+					printf "put them at '$runs'\n" >&2
+				fi
 			fi
+			printf "\033[0m"
+			__input_to_exit
 		fi
 	fi
 }
