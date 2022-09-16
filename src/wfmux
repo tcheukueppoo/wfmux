@@ -743,26 +743,24 @@ __push() {
 		cd "$project_dir"
 		if [ $? -eq 0 ]
 		then
-			local remote=$(printf "$remote" | eval "$searcher")
+			local remotes=$(printf "$wfmux_remote" | eval "$searcher")
 
-			if [ -n "$remote" ]; then
+			if [ -n "$remotes" ]; then
 				local force=${1:---force}
 				local proto=https
-				local branches=$(git branch | sed -ne 's,^* \(.*\),\1,p')
-				local tok=$(eval "$tok '${remote%%.*}'")
+				local branch=$(git branch | sed -ne 's,^* \(.*\),\1,p')
 				local git_config=$(cat .git/config)
 
-				case $remote in
-					codeberg.org | github.com | github.com) proto=https ;;
-					*) proto=https ;;
-				esac
-				if [ "$remote" = "gitlab.com" ]
-				then
-					tok="$gitlab_tok_name:$tok"
-				fi
-
-				printf "%s\n" "$branches" | while read branch
+				printf "%s\n" "$remotes" | while read remote
 				do
+					local my_tok=$(eval "$tok '${remote%%.*}'")
+
+					case $remote in
+						codeberg.org | github.com | github.com) proto=https ;;
+						*) proto=https ;;
+					esac
+					test "$remote" = "gitlab.com" && my_tok="$gitlab_tok_name:$my_tok"
+
 					printf "Pushing to $remote/$username  ";
 					{ i=0
 					  set -- − \\ \| /
@@ -774,11 +772,11 @@ __push() {
 					} &
 
 					local failed=No
-					git push "$force" --set-upstream "$proto://$tok@$remote/$username/$project_name.git" "$branch" >/dev/null 2>&1 || failed=Yes
+					git push "$force" --set-upstream "$proto://$my_tok@$remote/$username/$project_name.git" "$branch" >/dev/null 2>&1 || failed=Yes
 					kill -KILL $!
 
-					test x"$failed" = x"Yes" && c=2mFailed || c=4mPushed
-					printf "\b\033[1;3${c}\033[0m\n\n"
+					test x"$failed" = x"Yes" && c=1mFailed || c=4mDone
+					printf "\b\033[1;3%s\033[0m\n" "$c"
 				done
 
 				# To avoid saving tokens!
