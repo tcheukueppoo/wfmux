@@ -347,7 +347,7 @@ display_dashboard() {
 }
 
 __get_cur_session() {
-	tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1
+	tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k2,2n | tail -n1 | cut -d: -f1
 }
 
 __get_pty() {
@@ -610,37 +610,38 @@ func_select() {
 		fi
 	}
 
-	local torun=`__give_or_do_it`
-	if [ -n "$torun" ]
+	local command=`__give_or_do_it`
+	if [ -n "$command" ]
 	then
-		for wid in $(tmux list-window -F '#{window_activity}:#I' | sort -r -t: -k 1,1n | cut -d: -f2 | tac)
+		# start from the most active, ignore the previous one
+		local active_win=$(tmux list-windows -F '#{window_activity}:#I' | sort -r -t: -k1,1n | cut -d: -f2 | tac | head -n1)
+
+		for i in $(tmux list-windows -F '#I' | awk "\$1 >= $active_win" | sort -h)
 		do
-			local panes=$(tmux list-panes -t $wid -F '#{pane_current_command}:#P:#{pane_active}')
+			echo "we got $i"
+			local panes=$(tmux list-panes -t "$i" -F '#{pane_current_command}:#P:#{pane_active}')
 			local bash_panes=$(printf "$panes" | grep "^${sh:-bash}:")
 
+			# is it an active pane idle? if no then
+			# take the most recently opened idle pane
 			if [ -n "$bash_panes" ]
 			then
-				# is it an idle active pane?
 				local bash_id=$(printf "$bash_panes" | sed -nE 's/.*:([0-9]+):1$/\1/p')
-				if [ -z "$bash_id" ]
-				then
-					# take the most recently opened idle pane
-					bash_id=$(printf "$bash_panes" | sort -t: -k 2,2n | head -n1 | cut -d: -f2)
-				fi
+				test -z "$bash_id" && bash_id=$(printf "$bash_panes" | sort -t: -k2,2n | head -n1 | cut -d: -f2)
 
-				tmux send-keys -t "$wid.$bash_id" "$torun" C-m
-				if [ $? -eq 0 ]; then new_window=false; break; fi
+				tmux send-keys -t "$i.$bash_id" "$command" C-m
+				test $? -eq 0 && new_window=false && break
 			else
 				if [ `printf '%s\n' "$panes" | wc -l` -eq 1 ]
 				then
-					tmux select-window -t "$wid"
-					tmux split-window -h "$torun"
-					if [ $? -eq 0 ]; then new_window=false; break; fi
+					tmux select-window -t "$i"
+					tmux split-window  -h "$command"
+					test $? -eq 0 && new_window=false && break
 				fi
 			fi
 		done
 
-		test $new_window = true && tmux new-window "$(__give_or_do_it)"
+		test x$new_window = x"true" && tmux new-window "$(__give_or_do_it)"
 	fi
 }
 
