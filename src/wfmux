@@ -820,6 +820,7 @@ __push() {
 func_awatcher() {
 	local watcher_name
 	local watch_config="$session_dir/`__get_cur_session`"
+	local project_dir=`__get_project_dir`
 
 	printf "Give a name to your watcher: "
 	read watcher_name
@@ -827,33 +828,35 @@ func_awatcher() {
 	if [ -n "$watcher_name" ]
 	then
 		# Check if this name already exists in the watcher list
-		cat "$watch_config" | grep "s[-+]:\[$watcher_name\]"
-		if [ $? -ne 0 ]
+		if [ -f "$watch_config" ]
 		then
-			local files=$(
-				args=$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
-				eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $searcher"
-			)
+			cat "$watch_config" | grep -q "s[-+]:\[$watcher_name\]"
+			test $? -eq 0 && return
+		fi
 
-			if [ -n "$files" ]
+		local files=$(
+			args=$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
+			eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $searcher"
+		)
+
+		if [ -n "$files" ]
+		then
+			if [ -r "$runs" ]
 			then
 				local cmd=$(cat "$runs" | eval "$searcher")
 				echo "writing to $watch_config"
-				if [ -r "$runs" ]
-				then
-					cat <<-EOF >>"$watch_config"
+				cat <<-EOF >>"$watch_config"
 
-					s+[$watcher_name] $cmd
-					$files
-					e[$watcher_name]
-					EOF
-					printf "\033[1;${dash_color}m"
-					printf "'${watcher_name}' was successfully added to the list of watchers\n"
-				else
-					printf "\033[1;31m"
-					printf "Cannot find the list of commands.\n" >&2
-					printf "put them at '$runs'\n" >&2
-				fi
+				s+[$watcher_name] $cmd
+				$files
+				e[$watcher_name]
+				EOF
+				printf "\033[1;${dash_color}m"
+				printf "'${watcher_name}' was successfully added to the list of watchers\n"
+			else
+				printf "\033[1;31m"
+				printf "Cannot find the list of commands.\n" >&2
+				printf "put them at '$runs'\n" >&2
 			fi
 			printf "\033[0m"
 			__input_to_exit
