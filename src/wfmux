@@ -743,7 +743,7 @@ __push() {
 
 			if [ -n "$remote" ]; then
 				local proto=https
-				local branch=$(git branch | sed -ne 's,^* \(.*\),\1,p')
+				local branches=$(git branch | sed -ne 's,^* \(.*\),\1,p')
 				local tok=$(eval "$tok '${remote%%.*}'")
 				local force=${1:---force}
 
@@ -756,8 +756,10 @@ __push() {
 					tok="$gitlab_tok_name:$tok"
 				fi
 
-				git push "$force" "$proto://$tok@$remote/$username/$project_name.git" "$branch"
-				printf "\nInput anything to quit!"
+				printf "$branches" | while read branch; do
+					git push "$force" --set-upstream "$proto://$tok@$remote/$username/$project_name.git" "$branch" >/dev/null 2>&1
+				done
+				printf "\nPress anything to quit!"
 				stty -echo -cooked && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
 			fi
 		fi
