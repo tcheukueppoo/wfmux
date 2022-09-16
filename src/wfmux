@@ -575,7 +575,7 @@ func_select() {
 	test -n "$file" || return
 	file="$project_dir/$file"
 
-	_open_file_command() {
+	__give_or_do_it() {
 
 		if [ x"$use_xdg" != xtrue ]
 		then
@@ -584,17 +584,12 @@ func_select() {
 
 			if [ $? = 0 ] && [ -n "$mime_type" ]
 			then
-
-				# The right program to open files of type 'application' can partly be determined
-				# with the aid of its subtype, like for example application/json, application/pdf, etc.
-				# therefore $mime should be the file's subtype in case the we have 'application' as mime
-				# type otherwise its type is the best option.
+				# use `subtype' whenever `type' is `application' otherwise use `type'
 				test "${mime_type%/*}" = application && mime=${mime_type#*/} || mime="${mime_type%/*}"
 
 				local opener=$(printf "$programs" | sed -ne "s/^$mime:[[:space:]]*\([^[:space:]]*\)/\1/p")
 				opener=${opener:-$EDITOR}
 				opener=${opener:-vim}
-
 				{ 
 					which "$opener" 1>&2
 					if [ $? -eq 0 ]  
@@ -615,7 +610,7 @@ func_select() {
 		fi
 	}
 
-	local torun=`_open_file_command`
+	local torun=`__give_or_do_it`
 	if [ -n "$torun" ]
 	then
 		for wid in $(tmux list-window -F '#{window_activity}:#I' | sort -r -t: -k 1,1n | cut -d: -f2 | tac)
@@ -645,7 +640,7 @@ func_select() {
 			fi
 		done
 
-		test $new_window = true && tmux new-window "$(_open_file)"
+		test $new_window = true && tmux new-window "$(__give_or_do_it)"
 	fi
 }
 
