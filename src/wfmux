@@ -288,6 +288,7 @@ display_dashboard() {
 	printf "${alt_screen}${hide_cur}${clear_screen}"
 
 	(
+		term_h= term_w=
 		while true; do
 			if [ "$(stty -F /dev/tty size)" = "$term_h $term_w" ]
 			then
@@ -339,7 +340,7 @@ display_dashboard() {
 
 	# get key from standard input
 	dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
-	kill -9 $! || : ## CAUTION: script would exit if set -e
+	kill -KILL $! || : ## CAUTION: script would exit if set -e
 	stty "$init_stty"
 	printf "$unset_ansi$show_cur"
 	tput clear
@@ -382,6 +383,7 @@ __new_session() {
 
 	# Start session with all its watchers
 	{
+		TMUX=${TMUX:-}
 		if ! tmux has-session -t "$session_name"
 		then
 			if [ -n "$TMUX" ]
@@ -406,7 +408,7 @@ __new_session() {
 				tmux attach-session -t "$session_name"
 			fi
 		fi
-	} 2>/dev/null
+	} #2>/dev/null
 }
 
 # Create a new project tmux session while in an existing session, similer to `func_open'
@@ -503,7 +505,7 @@ func_tmux() {
 	_dump >>"$tmux_conf"
 }
 
-_get_project_dir() {
+__get_project_dir() {
 	local session_name=$(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k 2,2n | tail -n1 | cut -d: -f1)
 	local session="$session_dir/$session_name"
 
@@ -515,24 +517,25 @@ _get_project_dir() {
 }
 
 func_switch() {
+	local cur_session=`__get_cur_session`
 
 	__get_session_dir_basename() {
-		local session project_dir
+		local session
+		local project_dir
 
-		tmux list-sessions -F '#S' | 
-		while read sname
-		do 
+		tmux list-sessions -F '#S' | while read sname; do
+
 			session="$session_dir/$sname"
 			if [ -d "$session" ]
 			then
-				project_dir=`cat "$session/path"`
+				project_dir=$(cat "$session/path")
 				if [ -d "$project_dir" ]
 				then
 					project_dir=$(printf "%s\n" "$project_dir" | sed -e 's,.*/\([^/]*/[^/]*\),\1,')
 					printf "%s\n" "$sname:$project_dir"
 				fi
 			fi
-		done
+		done | sed -e "s/$cur_//"
 	}
 
 	local session_pbase=`__get_session_dir_basename`
@@ -550,7 +553,7 @@ func_switch() {
 
 ## open your favorite tui file manager
 func_explore() {
-	local project_dir=`_get_project_dir`
+	local project_dir=`__get_project_dir`
 	eval "$explorer" "$project_dir"
 }
 
@@ -559,7 +562,7 @@ func_select() {
 	local file torun
 	local new_window=true
 	local sh=${SHELL##*/}
-	local project_dir=`_get_project_dir`
+	local project_dir=`__get_project_dir`
 
 	test -d "$project_dir" || return
 
@@ -663,7 +666,7 @@ __commit() {
 	  command -v "$editor" || return
 	} >/dev/null
 
-	local project_dir=`_get_project_dir`
+	local project_dir=`__get_project_dir`
 
 	if [ -n "$project_dir" ]
 	then
@@ -692,7 +695,7 @@ __commit() {
 func_branch() {
 	command -v git >/dev/null || return
 
-	local project_dir=`_get_project_dir`
+	local project_dir=`__get_project_dir`
 
 	cd "$project_dir"
 	if [ $? = 0 ]
@@ -703,7 +706,8 @@ func_branch() {
 			searcher="$searcher --print-query"
 		fi
 
-		local branch=$(git branch | sed -e 's/^\*\? *//' | eval "$searcher" | tail -n1)
+		local branch=$(git branch | sed -e 's/^\(\*\?\) *\(.*\)$/\2\1/' | eval "$searcher" | tail -n1)
+		branch=${branch%*}
 		if [ -n "$branch" ]
 		then
 			# Check if he/she commited before checking out
@@ -731,7 +735,7 @@ __push() {
 	  command -v "$tok" || return
 	} >/dev/null
 
-	local project_dir=`_get_project_dir`
+	local project_dir=`__get_project_dir`
 	test -n "$project_dir" && project_name=$(basename "$project_dir")
 
 	if [ -n "$project_name" ]
@@ -742,10 +746,11 @@ __push() {
 			local remote=$(printf "$remote" | eval "$searcher")
 
 			if [ -n "$remote" ]; then
+				local force=${1:---force}
 				local proto=https
 				local branches=$(git branch | sed -ne 's,^* \(.*\),\1,p')
 				local tok=$(eval "$tok '${remote%%.*}'")
-				local force=${1:---force}
+				local git_config=$(cat .git/config)
 
 				case $remote in
 					codeberg.org | github.com | github.com) proto=https ;;
@@ -756,9 +761,28 @@ __push() {
 					tok="$gitlab_tok_name:$tok"
 				fi
 
-				printf "$branches" | while read branch; do
-					git push "$force" --set-upstream "$proto://$tok@$remote/$username/$project_name.git" "$branch" >/dev/null 2>&1
+				printf "%s\n" "$branches" | while read branch
+				do
+					printf "Pushing to $remote/$username  ";
+					{ i=0
+					  set -- − \\ \| /
+					  while true; do 
+						  sleep 0.2
+						  i=$(($i+1))
+						  eval "printf \"\b\$$(($(($i%4))+1))\""
+					  done
+					} &
+
+					local failed=No
+					git push "$force" --set-upstream "$proto://$tok@$remote/$username/$project_name.git" "$branch" >/dev/null 2>&1 || failed=Yes
+					kill -KILL $!
+
+					test x"$failed" = x"Yes" && c=2mFailed || c=4mPushed
+					printf "\b\033[1;3${c}\033[0m\n\n"
 				done
+
+				# To avoid saving tokens!
+				printf "$git_config" > .git/config
 				printf "\nPress anything to quit!"
 				stty -echo -cooked && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
 			fi
@@ -825,7 +849,7 @@ func_ops() {
 		:;
 	}
 
-	[ -z `_get_project_dir` ] && return
+	[ -z `__get_project_dir` ] && return
 
 	local ops=$(
 	    printf "commit
