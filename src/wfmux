@@ -3,26 +3,26 @@
 #set -x
 set -ue
 
-readonly alt_screen='\033[?1049h'
-readonly normal_screen='\033[?1049l'
-readonly hide_cur='\033[?25l'
-readonly show_cur='\033[?25h'
-readonly clear_screen='\033[2J'
-readonly bold='\033[1m'
-readonly unset_ansi='\033[0m'
-readonly program=${0##*/}
-readonly config_dir=${XDG_CONFIG_HOME:-"$HOME/.config"}
-readonly wfmux_config_dir="${config_dir%%/}/wfmux"
-readonly commands="$wfmux_config_dir/commands"
-readonly cache_dir=${XDG_CACHE_HOME:-"$HOME/.cache"}
-readonly cache="${cache_dir%%/}/wfmux"
-readonly cache_pl="${cache_dir}/wfmux.pl"
-readonly session_dir="${cache_dir%%/}/wfmux/sessions"
-readonly tmux_conf="$HOME/.tmux.conf"
+readonly ALT_SCREEN='\033[?1049h'
+readonly NORMAL_SCREEN='\033[?1049l'
+readonly HIDE_CUR='\033[?25l'
+readonly SHOW_CUR='\033[?25h'
+readonly CLEAR_SCREEN='\033[2J'
+readonly BOLD='\033[1m'
+readonly UNSET_ANSI='\033[0m'
+readonly PROGRAM=${0##*/}
+readonly CONFIG_DIR=${XDG_CONFIG_HOME:-"$HOME/.config"}
+readonly WFMUX_CONFIG_DIR="${CONFIG_DIR%%/}/wfmux"
+readonly COMMANDS="$WFMUX_CONFIG_DIR/commands"
+readonly CACHE_DIR=${XDG_CACHE_HOME:-"$HOME/.cache"}
+readonly CACHE="${CACHE_DIR%%/}/wfmux"
+readonly CACHE_PL="${CACHE_DIR}/wfmux.pl"
+readonly SESSION_DIR="${CACHE_DIR%%/}/wfmux/sessions"
+readonly TMUX_CONF="$HOME/.tmux.conf"
 
-mkdir -p "$config_dir" "$cache_dir" "$cache" "$session_dir" "$wfmux_config_dir"
+mkdir -p "$CONFIG_DIR" "$CACHE_DIR" "$CACHE" "$SESSION_DIR" "$WFMUX_CONFIG_DIR"
 
-readonly logo_ls=$(cat <<EOF
+readonly LOGO_LS=$(cat <<EOF
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx┌────────────
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx┌───────
@@ -42,7 +42,7 @@ xxxxxxxxx──────┘xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│
 EOF
 )
-readonly logo_ms=$(cat <<EOF
+readonly LOGO_MS=$(cat <<EOF
 xxxxxxxxxxxxxxxxxxxxx┌─────xxxxxxxxxxxxxxxxxxxxxxxxxxx┌───
 xxxxxxxxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│
 xxxxxxxx┌─┐xxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxx┌──┐xxxxxx│
@@ -56,9 +56,9 @@ xxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx─────────┘xxx│
 xxxxxxx───┘xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│
 EOF
 )
-readonly logo_ss='WFMUX'
+readonly LOGO_SS='WFMUX'
 
-readonly wfmux=$(cat<<EOF
+readonly WFMUX=$(cat<<EOF
 
      ┌──────────────┤ WFMUX
     ┌┴─────────────────────────────────────────────────┐
@@ -73,32 +73,31 @@ readonly wfmux=$(cat<<EOF
 EOF
 )
 
-username=username
-tok=tok
-gitlab_tok_name=gitlab_token_name
-wfmux_config="$wfmux_config_dir/wfmux.conf"
-use_xdg=yes
-runner=entr
-runner_templates="$HOME/.config/wfmux/rtemplate"
-dash_color=4
-explorer=nnn
-ignore=.git
-searcher='fzf --multi --border=bottom --margin=25%'
-window_attributes_rest=20x20+10+20
-window_attributes_file_selector=20x20+10+20
-window_attributes_input_box=20x20+10+20
-tbind_ops==
-tbind_explore=BSpace
-tbind_select=Enter
+TOK=tok
+GITLAB_TOK_NAME=gitlab_token_name
+WFMUX_CONFIG="$WFMUX_CONFIG_DIR/wfmux.conf"
+USE_XDG=yes
+RUNNER=entr
+RUNNER_TEMPLATES="$HOME/.config/wfmux/rtemplate"
+DASH_COLOR=4
+EXPLORER=nnn
+IGNORE=.git
+SEARCHER='fzf --multi --border=bottom --margin=25%'
+WINDOW_ATTRIBUTES_REST=20x20+10+20
+WINDOW_ATTRIBUTES_FILE_SELECTOR=20x20+10+20
+WINDOW_ATTRIBUTES_INPUT_BOX=20x20+10+20
+TBIND_OPS==
+TBIND_EXPLORE=BSpace
+TBIND_SELECT=Enter
 
-project_directory=$(cat <<-EOF
+PROJECT_DIRECTORY=$(cat <<-EOF
 	$HOME/projects
 	$HOME/aprojects
 	$HOME/oprojects
 	EOF
 )
 
-programs=$(cat <<-EOF
+PROGRAMS=$(cat <<-EOF
 	pdf:      zathura
 	text:     nvim
 	video:    ffmpeg
@@ -160,7 +159,7 @@ func_main() {
 		-h | -help | --help)
 			usage 0 ;;
 		-c | -config | --config)
-			[ $# -eq 1 ] && wfmux_config=$2 || usage 1
+			[ $# -eq 1 ] && WFMUX_CONFIG=$2 || usage 1
 			gave_config=true
 			shift ;;
 		push     | \
@@ -182,23 +181,23 @@ func_main() {
 		nsession | \
 		switch)
 			operation=$1
-			if [ -f "$wfmux_config" ]
+			if [ -f "$WFMUX_CONFIG" ]
 			then
-				[ -r "$wfmux_config" ] || die "no permission to read '$wfmux_config'"
-				. $wfmux_config        || die "could not source configuration file"
+				[ -r "$WFMUX_CONFIG" ] || die "no permission to read '$WFMUX_CONFIG'"
+				. $WFMUX_CONFIG        || die "could not source configuration file"
 			fi ;;
 		*)
-			die "'$1' is an unrecognized option, please try \`$program --help'" ;;
+			die "'$1' is an unrecognized option, please try \`$PROGRAM --help'" ;;
 		esac
 		shift
 	done
 
-	if [ $gave_config = true ]
+	if [ x$gave_config = x"true" ]
 	then
 		check_config_variables
 	else
 		# use default config "~/.config/wfmux.conf" is possible
-		if [ -f "$wfmux_config" -a -r "$wfmux_config" ]
+		if [ -f "$WFMUX_CONFIG" -a -r "$WFMUX_CONFIG" ]
 		then
 			check_config_variables
 		fi
@@ -212,58 +211,56 @@ func_main() {
 ## we won't have to rely on `set -u`, we would want to output a custom 
 ## error message if one of these variables aren't set/sane.
 check_config_variables() {
-	_error="$program: ('$wfmux_config'):"
+	local is_set
+	local error="$PROGRAM: ('$WFMUX_CONFIG'):"
 	for para in \
-		         use_xdg \
-		         runner \
-		         searcher \
-		         explorer \
-		         window_attributes_rest \
-		         window_attributes_input_box \
-		         window_attributes_file_selector \
-		         project_directory \
-		         tbind_ops \
-		         tbind_select \
-		         tbind_explore
+		         USE_XDG \
+		         RUNNER \
+		         SEARCHER \
+		         EXPLORER \
+		         WINDOW_ATTRIBUTES_REST \
+		         WINDOW_ATTRIBUTES_INPUT_BOX \
+		         WINDOW_ATTRIBUTES_FILE_SELECTOR \
+		         PROJECT_DIRECTORY \
+		         TBIND_OPS \
+		         TBIND_SELECT \
+		         TBIND_EXPLORE
 	do
-		eval "para=\${$para:-UNSET}"
-		if [ "$para" = UNSET ]
-		then
-			die "$_error '$para' isn't set"
-		fi
+		eval "is_set=\${$para:-UNSET}"
+		[ "$is_set" = UNSET ] && die "$error '$para' isn't set"
 	done
 
 	_config_die() {
-		die "$_error invalid value assigned to '$1'"
+		die "$error invalid value assigned to '$1'"
 	}
 
 	## Check if we got sane values
 	{
-		window_regex='[[:digit:]]\+x[[:digit:]]\++[[:digit:]]\++[[:digit:]]\+$'
-		expr "$window_attributes_rest"          : "$window_regex" || _config_die window_attributes_rest
-		expr "$window_attributes_file_selector" : "$window_regex" || _config_die window_attributes_file_selector
-		expr "$window_attributes_input_box"     : "$window_regex" || _config_die window_attributes_input_box
-		expr "$use_xdg"                         : 'true\|false$'  || _config_die use_xdg
-		expr "$dash_color"                      : '[0-9]$'        || _config_die dash_color
+		local window_regex='[[:digit:]]\+x[[:digit:]]\++[[:digit:]]\++[[:digit:]]\+$'
+		expr "$WINDOW_ATTRIBUTES_REST"          : "$window_regex" || _config_die WINDOW_ATTRIBUTES_REST
+		expr "$WINDOW_ATTRIBUTES_FILE_SELECTOR" : "$window_regex" || _config_die WINDOW_ATTRIBUTES_FILE_SELECTOR
+		expr "$WINDOW_ATTRIBUTES_INPUT_BOX"     : "$window_regex" || _config_die WINDOW_ATTRIBUTES_INPUT_BOX
+		expr "$USE_XDG"                         : 'true\|false$'  || _config_die USE_XDG
+		expr "$DASH_COLOR"                      : '[0-9]$'        || _config_die DASH_COLOR
 	} >/dev/null
 
-	for i in explorer runner searcher
+	for i in EXPLORER RUNNER SEARCHER
 	do
 		eval "command -v" "\${$i} >/dev/null"
-		test $? -ne 0 && die "$_error '$i' not found"
+		test $? -ne 0 && die "$error '$i' not found"
 	done
 
 	# IFS=$'\n' won't expand '\n' on dash shell
-	printf "$project_directory" |
+	printf "$PROJECT_DIRECTORY" |
 	while read i
 	do
-		test -d "$i" || die "$_error '$i' is not a directory"
-		test -r "$i" || die "$_error cannot list content of '$i'"
+		test -d "$i" || die "$error '$i' is not a directory"
+		test -r "$i" || die "$error cannot list content of '$i'"
 	done
 }
 
 display_dashboard() {
-	local put_color="\033[3${dash_color:-9}m"
+	local put_color="\033[3${DASH_COLOR:-9}m"
 	local max="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
 
 	# generate help message for the dashboard
@@ -271,9 +268,9 @@ display_dashboard() {
 		cat <<-EOF
 			The following are tmux bindings related to WFMUX.
 
-			M-$tbind_select: fuzzyly open project files
-			M-$tbind_explore: open file manager
-			M-$tbind_ops: fuzzyly select other wfmux operations
+			M-$TBIND_SELECT: fuzzyly open project files
+			M-$TBIND_EXPLORE: open file manager
+			M-$TBIND_OPS: fuzzyly select other wfmux operations
 
 			input any key to exit dashboard
 		EOF
@@ -286,7 +283,7 @@ display_dashboard() {
 	# save initial terminal setting and will set it back after exiting dashboard
 	local init_stty=$(stty -g)
 	stty -cooked -echo time 0 min 1
-	printf "${alt_screen}${hide_cur}${clear_screen}"
+	printf "${ALT_SCREEN}${HIDE_CUR}${CLEAR_SCREEN}"
 
 	(
 		term_h= term_w=
@@ -321,7 +318,7 @@ display_dashboard() {
 				gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
 			fi
 
-			printf "${clear_screen}${put_color}${bold}"
+			printf "${CLEAR_SCREEN}${PUT_COLOR}${BOLD}"
 			eval 'printf "$logo_'$_size'"' | {
 				while read i
 				do
@@ -329,7 +326,7 @@ display_dashboard() {
 					y=$(($y+1))
 				done
 
-				printf "$unset_ansi"
+				printf "$UNSET_ANSI"
 				_gen_key_helper | while read i
 				do
 					y=$(($y+1))
@@ -343,7 +340,7 @@ display_dashboard() {
 	dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
 	kill -KILL $! || : ## CAUTION: script would exit if set -e
 	stty "$init_stty"
-	printf "$unset_ansi$show_cur"
+	printf "$UNSET_ANSI$SHOW_CUR"
 	tput clear
 }
 
@@ -361,8 +358,8 @@ __new_session() {
 	}
 
 	# TODO: cache search results
-	local project_list=$(printf "$project_directory\n" | while read pdir; do locate_git_repos "$pdir"; done | tee "$cache_pl")
-	local project_name=$(printf "$project_list" | sed -nE 's,^.*/(.*)$,\1,p' | awk '{print "["NR"]:"$0}' | eval "$searcher")
+	local project_list=$(printf "$PROJECT_DIRECTORY\n" | while read pdir; do locate_git_repos "$pdir"; done | tee "$CACHE_PL")
+	local project_name=$(printf "$project_list" | sed -nE 's,^.*/(.*)$,\1,p' | awk '{print "["NR"]:"$0}' | eval "$SEARCHER")
 
 	test -z "$project_name" && return
 
@@ -370,7 +367,7 @@ __new_session() {
 	local session_name=`mktemp -u pr-XXXXXX`
 
 	# Check if session already exist
-	for i in "$session_dir"/*
+	for i in "$SESSION_DIR"/*
 	do
 		local path="$i/path"
 		if [ -f "$path" ]
@@ -420,7 +417,7 @@ func_nsession() {
 _setup_session() {
 	local project_dir=$1
 	local session_name=$2
-	local project_session="$session_dir/$session_name"
+	local project_session="$SESSION_DIR/$session_name"
 
 	mkdir -p "$project_session"
 	printf "$project_dir" >"$project_session/path"
@@ -446,7 +443,7 @@ _setup_session() {
 				| tail -n +2 \
 				| sed '$d' \
 				| 
-				  case $runner in
+				  case $RUNNER in
 				   entr) entr -nr "$cmd" ;;
 				   *) : ;;
 				  esac >"$fifo"
@@ -466,7 +463,7 @@ func_open() {
 		printf "Choose an existing session to attach\n\n"
 		tmux list-sessions | awk '{print "["NR"] "$0}'
 	fi
-	printf "$wfmux\n"
+	printf "$WFMUX\n"
 	read -p '⟩⟩ ' input
 	tput clear
 
@@ -491,28 +488,28 @@ func_open() {
 }
 
 __set_whxy() {
-	local window_attributes=$1
+	local window_attribute=$1
 
-	y=$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)$/\1/')
-	x=$(printf "$window_attributes" | sed -e 's/^.*+\([0-9]\+\)+.*/\1/')
-	w=$(printf "$window_attributes" | sed -e 's/^\([0-9]\+\)x.*/\1/')
-	h=$(printf "$window_attributes" | sed -e 's/^.*x\([0-9]\+\).*/\1/')
+	y=$(printf "$window_attribute" | sed -e 's/^.*+\([0-9]\+\)$/\1/')
+	x=$(printf "$window_attribute" | sed -e 's/^.*+\([0-9]\+\)+.*/\1/')
+	w=$(printf "$window_attribute" | sed -e 's/^\([0-9]\+\)x.*/\1/')
+	h=$(printf "$window_attribute" | sed -e 's/^.*x\([0-9]\+\).*/\1/')
 }
 
 _dump() {
 
-	__set_whxy $window_attributes_file_selector
+	__set_whxy $WINDOW_ATTRIBUTES_FILE_SELECTOR
 	cat <<EOTX
-unbind M-$tbind_select
-bind M-$tbind_select if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux select"; }
+unbind M-$TBIND_SELECT
+bind M-$TBIND_SELECT if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux select"; }
 EOTX
 
-	__set_whxy $window_attributes_rest
+	__set_whxy $WINDOW_ATTRIBUTES_REST
 	cat <<EOTX
-unbind M-$tbind_explore
-bind M-$tbind_explore if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux explore"; }
-unbind M-$tbind_ops
-bind M-$tbind_ops if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux ops"; }
+unbind M-$TBIND_EXPLORE
+bind M-$TBIND_EXPLORE if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux explore"; }
+unbind M-$TBIND_OPS
+bind M-$TBIND_OPS if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux ops"; }
 EOTX
 
 }
@@ -522,12 +519,12 @@ func_dump() {
 }
 
 func_tmux() {
-	_dump >>"$tmux_conf"
+	_dump >>"$TMUX_CONF"
 }
 
 __get_project_dir() {
 	local session_name=`__get_cur_session`
-	local session="$session_dir/$session_name"
+	local session="$SESSION_DIR/$session_name"
 
 	if [ -d "$session" ]
 	then
@@ -545,7 +542,7 @@ func_switch() {
 
 		tmux list-sessions -F '#S' | while read sname
 		do
-			session="$session_dir/$sname"
+			session="$SESSION_DIR/$sname"
 			if [ -d "$session" ]
 			then
 				project_dir=$(cat "$session/path")
@@ -559,7 +556,7 @@ func_switch() {
 	}
 
 	local session_pbase=`__get_projects_basenames`
-	local pbasename=$(printf "$session_pbase" | cut -d: -f2 | eval "$searcher")
+	local pbasename=$(printf "$session_pbase" | cut -d: -f2 | eval "$SEARCHER")
 
 	pbasename=${pbasename%*}
 	if [ -n "$pbasename" ]
@@ -575,7 +572,7 @@ func_switch() {
 ## open your favorite tui file manager
 func_explore() {
 	local project_dir=`__get_project_dir`
-	eval "$explorer" "$project_dir"
+	eval "$EXPLORER" "$project_dir"
 }
 
 ## select project files to open
@@ -588,8 +585,8 @@ func_select() {
 	test -d "$project_dir" || return
 
 	file=$(
-		args=$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
-		eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $searcher"
+		args=$(printf "$IGNORE" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
+		eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $SEARCHER"
 	)
 
 	test -n "$file" || return
@@ -597,7 +594,7 @@ func_select() {
 
 	__give_it_or_do_it() {
 
-		if [ x"$use_xdg" != xtrue ]
+		if [ x"$USE_XDG" != xtrue ]
 		then
 			local mime
 			local mime_type=$(xdg-mime query filetype "$file")
@@ -607,7 +604,7 @@ func_select() {
 				# use `subtype' whenever `type' is `application' otherwise use `type'
 				test "${mime_type%/*}" = application && mime=${mime_type#*/} || mime="${mime_type%/*}"
 
-				local opener=$(printf "$programs" | sed -ne "s/^$mime:[[:space:]]*\([^[:space:]]*\)/\1/p")
+				local opener=$(printf "$PROGRAMS" | sed -ne "s/^$mime:[[:space:]]*\([^[:space:]]*\)/\1/p")
 				opener=${opener:-$EDITOR}
 				opener=${opener:-vim}
 				{ 
@@ -670,7 +667,7 @@ func_acommit() {
 }
 
 __commit() {
-	local editor=$(printf "$programs" | sed -ne 's/^[ \t]*text:[ \t]\+\(\w*\)$/\1/p')
+	local editor=$(printf "$PROGRAMS" | sed -ne 's/^[ \t]*text:[ \t]\+\(\w*\)$/\1/p')
 
 	editor=${editor:-$EDITOR}
 	editor=${editor:-vim}
@@ -713,13 +710,12 @@ func_branch() {
 	cd "$project_dir"
 	if [ $? = 0 ]
 	then
-		if printf "%s\n" "$searcher" | grep -q '^fzf'
+		if printf "%s\n" "$SEARCHER" | grep -q '^fzf'
 		then
-			local old_searcher=$searcher
-			searcher="$searcher --print-query"
+			SEARCHER="$SEARCHER --print-query"
 		fi
 
-		local branch=$(git branch | sed -e 's/^\(\*\?\) *\(.*\)$/\2\1/' | eval "$searcher" | tail -n1)
+		local branch=$(git branch | sed -e 's/^\(\*\?\) *\(.*\)$/\2\1/' | eval "$SEARCHER" | tail -n1)
 
 		branch=${branch%*}
 		if [ -n "$branch" ]
@@ -731,8 +727,6 @@ func_branch() {
 				git checkout "$branch" || git checkout -b "$branch"
 			fi
 		fi
-
-		searcher=$old_searcher
 	fi
 }
 
@@ -751,7 +745,7 @@ func_fpush() {
 
 __push() {
 	{ command -v git    || return
-	  command -v "$tok" || return
+	  command -v "$TOK" || return
 	} >/dev/null
 
 	local project_dir=`__get_project_dir`
@@ -763,14 +757,14 @@ __push() {
 		if [ $? -eq 0 ]
 		then
 			local username
-			local remotes=$(printf "$wfmux_remote" | eval "$searcher")
-			local session_path="$session_dir/$(__get_cur_session)"
+			local remotes=$(printf "$WFMUX_REMOTE" | eval "$SEARCHER")
+			local session_path="$SESSION_DIR/$(__get_cur_session)"
 
 			if [ -s "$session_path" ]
 			then
 				username=$(cat "$session_path/user")
 			else
-				username=$(printf "$wfmux_users" | eval "$searcher")
+				username=$(printf "$WFMUX_USERS" | eval "$SEARCHER")
 				printf "$username" >"$session_path/user"
 			fi
 
@@ -782,13 +776,13 @@ __push() {
 
 				printf "%s\n" "$remotes" | while read remote
 				do
-					local my_tok=$(eval "$tok '${remote%%.*}'")
+					local my_tok=$(eval "$TOK '${remote%%.*}'")
 
 					case $remote in
 						codeberg.org | github.com | github.com) proto=https ;;
 						*) proto=https ;;
 					esac
-					test "$remote" = "gitlab.com" && my_tok="$gitlab_tok_name:$my_tok"
+					test "$remote" = "gitlab.com" && my_tok="$GITLAB_TOK_NAME:$my_tok"
 
 					printf "Pushing to $remote/$username  ";
 					{ i=0
@@ -804,7 +798,7 @@ __push() {
 					git push "$force" --set-upstream "$proto://$my_tok@$remote/$username/$project_name.git" "$branch" >/dev/null 2>&1 || failed=Yes
 					kill -KILL $!
 
-					test x"$failed" = x"Yes" && c=1mFailed || c=${dash_color}mDone
+					test x"$failed" = x"Yes" && c=1mFailed || c=${DASH_COLOR}mDone
 					printf "\b\033[1;3%s\033[0m\n" "$c"
 				done
 
@@ -819,7 +813,7 @@ __push() {
 # Add a new watcher to the watcher list
 func_awatcher() {
 	local watcher_name
-	local watch_config="$session_dir/`__get_cur_session`/watch"
+	local watch_config="$SESSION_DIR/`__get_cur_session`/watch"
 	local project_dir=`__get_project_dir`
 
 	printf "Give a name to your watcher: "
@@ -834,28 +828,28 @@ func_awatcher() {
 		fi
 
 		local files=$(
-			args=$(printf "$ignore" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
-			eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $searcher"
+			args=$(printf "$IGNORE" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
+			eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $SEARCHER"
 		)
 
 		if [ -n "$files" ]
 		then
 			printf "\033[1;4m"
-			if [ -r "$commands" ]
+			if [ -r "$COMMANDS" ]
 			then
-				local cmd=$(cat "$commands" | grep -v '^[\t ]*\(#.*\)\?$' | eval "$searcher")
+				local cmd=$(cat "$COMMANDS" | grep -v '^[\t ]*\(#.*\)\?$' | eval "$SEARCHER")
 				cat <<-EOF >>"$watch_config"
 
 				s+[$watcher_name]: $cmd
 				$files
 				e[$watcher_name]
 				EOF
-				printf "\033[1;3${dash_color}m"
+				printf "\033[1;3${DASH_COLOR}m"
 				printf "'${watcher_name}' was successfully added to the list of watchers\n"
 			else
 				printf "\033[1;31m"
 				printf "Could not find the list of commands.\n" >&2
-				printf "these commands should be located at '$commands'\n" >&2
+				printf "these commands should be located at '$COMMANDS'\n" >&2
 			fi
 			printf "\033[0m\033[0m"
 
@@ -867,7 +861,7 @@ func_awatcher() {
 # remove watchers from the watcher list
 func_rwatcher() {
 	local watcher_name
-	local project_session="$session_dir/`__get_cur_session`"
+	local project_session="$SESSION_DIR/`__get_cur_session`"
 	local watch_config="$project_session/watch"
 
 	if [ -r "$watch_config" -a -s "$watch_config" ]
@@ -875,7 +869,7 @@ func_rwatcher() {
 		watcher_name=$(cat "$watch_config" | sed -ne 's/^s[-+]\[\(\w*\)\]:.*$/\1/p')
 		if [ -n "$watcher_name" ]
 		then
-			watcher_name=$(printf "$watcher_name" | eval "$searcher")
+			watcher_name=$(printf "$watcher_name" | eval "$SEARCHER")
 			if [ -n "$watcher_name" ]
 			then
 				printf "\033[1;4m"
@@ -911,7 +905,7 @@ func_rwatcher() {
 
 __ed_watcher() {
 	local cur_session=`__get_cur_session`
-	local watch_config="$session_dir/$cur_session/watch"
+	local watch_config="$SESSION_DIR/$cur_session/watch"
 
 	[ -z "$cur_session" ] && return
 	if [ -r "$watch_config" -a -s "$watch_config" ]
@@ -920,14 +914,14 @@ __ed_watcher() {
 
 		if [ -n "$watcher_name" ]
 		then
-			watcher_name=$(printf "$watcher_name" | eval "$searcher")
+			watcher_name=$(printf "$watcher_name" | eval "$SEARCHER")
 			if [ -n "$watcher_name" ]
 			then
 				local state=$1
 				local to=disable
 
 				[ x$state = x"+" ] && to=enable
-				printf "\033[4m\033[3{$dash_color}m"
+				printf "\033[4m\033[3{$DASH_COLOR}m"
 
 				sed -ie "s/^s.[$watcher_name]/^s$state[$watcher_name]/" "$watch_config"
 
@@ -957,7 +951,11 @@ func_view() {
 
 # Cycle through stdout&stderr of watchers
 func_cycle() {
-	:;
+	local cur_session=`__get_cur_session`
+	local project_session_dir="$SESSION_DIR/$cur_session"
+
+	[ -z "$cur_session" ] && return
+	
 }
 
 # Wrap all operations, plugins appear here
@@ -985,14 +983,14 @@ cycle
 nsession
 switch
 fpush
-push" | eval "$searcher")
+push" | eval "$SEARCHER")
 
 	test -n "$ops" && {
 		trap '' HUP
 
 		case $ops in
 			select)
-				__set_whxy $window_attributes_file_selector ;;
+				__set_whxy $WINDOW_ATTRIBUTES_FILE_SELECTOR ;;
 			commit   | \
 			acommit  | \
 			runner   | \
@@ -1008,7 +1006,7 @@ push" | eval "$searcher")
 			cycle    | \
 			nsession | \
 			switch)
-				__set_whxy $window_attributes_rest ;;
+				__set_whxy $WINDOW_ATTRIBUTES_REST ;;
 		esac
 
 		tmux display-popup -w $w -h $h -x $x -y $y -E "/home/kueppo/projects/wfmux/src/wfmux $ops"
