@@ -389,11 +389,11 @@ __new_session() {
 			then
 				local pty=`__get_pty`
 
-				_setup_session "$project_dir" "$session_name"&
+				__setup_session "$project_dir" "$session_name"&
 				tmux new-session -s "$session_name" -d
 				tmux switch-client -c "$pty" -t "$session_name"
 			else
-				_setup_session "$project_dir" "$session_name"&
+				__setup_session "$project_dir" "$session_name"&
 				display_dashboard
 				tmux new-session -s "$session_name"
 			fi
@@ -415,42 +415,55 @@ func_nsession() {
 	__new_session
 }
 
-_setup_session() {
+__start_watcher() {
+	local project_session=$2
+	local one_shot=${1%%(*}
+	local cmd=${1#?(*)}
+	local watcher_name=${1%%)*}
+
+	watcher_name=${1#?(}
+
+	# You would be seeing the std(out|err) of watchers via named-pipes
+	local fifo="$project_session/fifos/$watcher_name.fifo"
+
+	test -p "$fifo" || mkfifo "$fifo"
+	{ 
+		trap '' HUP
+		if [ $one_shot = 1 ]
+		then
+			# for self restarting programs(like framework developement server, etc.)
+			eval "$cmd"
+		else
+			cat "$project_session/watch" \
+			| sed -ne "/^s+0\[$watcher_name\]:/,/^e\[$watcher_name\]/p" \
+			| tail -n +2 \
+			| sed '$d' \
+			| case $RUNNER in
+			   entr) entr -nr "$cmd" ;;
+			   *) : ;;
+			  esac >"$fifo"
+		fi
+	} >"$fifo" 2>&1 &
+
+	printf "$!" >"$project_session/$watcher_name.pid"
+}
+
+__setup_session() {
 	local project_dir=$1
-	local session_name=$2
-	local project_session="$SESSION_DIR/$session_name"
+	local project_session="$SESSION_DIR/$2"
 
 	mkdir -p "$project_session"
 	printf "$project_dir" >"$project_session/path"
 
-	local watch_config="$project_session/watch"
 	if [ -f "$watch_config" ]
 	then
-		local fifo
-		for pairs in `cat "$watch_config" | sed -ne 's/^s+\[\(.*\)\]: *\(.\+\) *$/(\1)\2/p'`
+		# Program must be runned in the project directory
+		cd "$project_dir" || return
+
+		mkdir -p "$project_session/fifos"
+		for pairs in `cat "$watch_config/watch" | sed -ne 's/^s+\(.\)\[\(.*\)\]: *\(.\+\) *$/\1(\2)\3/p'`
 		do
-			local cmd=${pairs#(*)}
-			local watcher_name=${pairs%%)*}
-
-			watcher_name=${pairs#(}
-
-			# You would be seeing the std(out|err) of watchers via named-pipes
-			fifo="$project_session/$watcher_name.fifo"
-			test -p "$fifo" || mkfifo "$fifo"
-
-			{ trap '' HUP
-			  cat "$watch_config" \
-				| sed -ne "/^s+\[$watcher_name\]:/,/^e\[$watcher_name\]/p" \
-				| tail -n +2 \
-				| sed '$d' \
-				| 
-				  case $RUNNER in
-				   entr) entr -nr "$cmd" ;;
-				   *) : ;;
-				  esac >"$fifo"
-			} &
-
-			printf "$!" >"$project_session/$watcher_name.pid"
+			__start_watcher "$pairs" "$project_session"
 		done
 	fi
 }
@@ -578,14 +591,13 @@ func_explore() {
 
 ## select project files to open
 func_select() {
-	local file
 	local new_window=true
 	local sh=${SHELL##*/}
 	local project_dir=`__get_project_dir`
 
 	test -d "$project_dir" || return
 
-	file=$(
+	local file=$(
 		args=$(printf "$IGNORE" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
 		eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $SEARCHER"
 	)
@@ -822,6 +834,9 @@ func_awatcher() {
 	printf "Give a name to your watcher: "
 	read watcher_name
 
+	printf "One shot(Y/n)? "
+	read one_shot
+
 	if [ -n "$watcher_name" ]
 	then
 		# Check if this name already exists in the watcher list
@@ -840,13 +855,22 @@ func_awatcher() {
 			printf "\033[1;4m"
 			if [ -r "$COMMANDS" ]
 			then
-				local cmd=$(cat "$COMMANDS" | grep -v '^[\t ]*\(#.*\)\?$' | eval "$SEARCHER")
-				cat <<-EOF >>"$watch_config"
-
-				s+[$watcher_name]: $cmd
-				$files
-				e[$watcher_name]
-				EOF
+				case $one_shot in
+				y | Y)
+					local cmd=$(cat "$COMMANDS" | grep -v '^[\t ]*\(#.*\)\?$' | eval "$SEARCHER")
+					cat <<-EOF
+						s+0[$watcher_name]: $cmd
+						$files
+						e[$watcher_name]
+					EOF
+					;;
+				*)
+					cat <<-EOF
+					s+1[$watcher_name]: $cmd
+					e[$watcher_name]
+					EOF
+					;;
+				esac >>"$watch_config"
 				printf "\033[1;3${DASH_COLOR}m"
 				printf "'$watcher_name' was successfully added to the list of watchers\n"
 			else
@@ -864,11 +888,12 @@ func_awatcher() {
 # remove watchers from the watcher list
 func_rwatcher() {
 	local cur_session=`__get_cur_session`
+	[ -z "$cur_session" ] && return
+
 	local project_session="$SESSION_DIR/$cur_session"
 	local watch_config="$project_session/watch"
 
-	[ -n "$cur_session" ] || return
-	[ -r "$watch_config" -a -s "$watch_config" ] || return
+	test -r "$watch_config" -a -s "$watch_config" || return
 
 	local watcher_name=$(cat "$watch_config" | sed -ne 's/^s[-+]\[\(\w*\)\]:.*$/\1/p')
 	if [ -n "$watcher_name" ]
@@ -877,7 +902,8 @@ func_rwatcher() {
 		if [ -n "$watcher_name" ]
 		then
 			printf "\033[1;4m"
-			if cat "$watch_config" | grep -q "^e\[$watcher_name\]"
+			cat "$watch_config" | grep -q "^e\[$watcher_name\]"
+			if [ $? -eq 0 ]
 			then
 				sed -i "/^s+\[$watcher_name\]:/,/^e\[$watcher_name\]/d" "$watch_config"
 				if [ $? -eq 0 ]
@@ -887,7 +913,7 @@ func_rwatcher() {
 						pid=$(cat "$project_session/$watcher_name.pid")
 						kill -KILL "$pid" >/dev/null 2>&1
 					fi
-					printf "\033[1;3${dash_color}m"
+					printf "\033[1;3${DASH_COLOR}m"
 					printf "Watcher '$watcher_name' successfully deleted\n"
 				else
 					printf "\033[1;31m"
@@ -907,54 +933,75 @@ func_rwatcher() {
 }
 
 __ed_watcher() {
-	local cur_session=`__get_cur_session`
-	local watch_config="$SESSION_DIR/$cur_session/watch"
-
+	local cur_session=$1
 	[ -z "$cur_session" ] && return
+
+	local watch_config="$SESSION_DIR/$cur_session/watch"
 	if [ -r "$watch_config" -a -s "$watch_config" ]
 	then
-		local watcher_name=$(cat "$watch_config" | sed -ne 's/^s[-+]\[\(\w*\)\]:.*$/\1/p')
+		local watcher_name=$(cat "$watch_config" | sed -ne 's/^s[-+][01]\[\(\w*\)\]:.*$/\1/p')
 
 		if [ -n "$watcher_name" ]
 		then
 			watcher_name=$(printf "$watcher_name" | eval "$SEARCHER")
 			if [ -n "$watcher_name" ]
 			then
-				local state=$1
+				local state=$2
 				local to=disable
-
 				[ x$state = x"+" ] && to=enable
-				printf "\033[4m\033[3${DASH_COLOR}m"
+				sed -ie "s/^s.\(.\[$watcher_name\]\)/^s$state\1/" "$watch_config"
 
-				sed -ie "s/^s.[$watcher_name]/^s$state[$watcher_name]/" "$watch_config"
-
-				printf "Watcher '$watcher_name' ${to}d\n"
-				printf "${UNSET_ANSI}${UNSET_ANSI}"
 			fi
 		else
-			printf "you do not have any watcher\n"
+			printf "No watcher could be found\n"
 		fi
-
-		__input_to_exit
 	fi
 }
 
-# enable watchers, should run when creating tmux session
+# Enable watchers, should be runned within an existing wfmux tmux session.
+# This operation sets on watchers to be runned upon session's startup.
 func_ewatcher() {
-	__ed_watcher +
+	local cur_session=`__get_cur_session`
+	[ -z "$cur_session" ] && return
+
+	printf "\033[4m"
+
+	local watcher_name=$(__ed_watcher "$cur_session" +)
+	if [ $? -eq 0 ]
+	then
+		local pid_file="$SESSION_DIR/$cur_session/fifos/$watcher_name.pid"
+
+		if ! test -s "$pid_file" ||
+		   ! ps aux | grep -q "^$(cat "$pid_file") "
+		then
+			local pairs=$(cat "$SESSION_DIR/$cur_session/watch" | sed -ne 's/^s+\(.\)\[\(.*\)\]: *\(.\+\) *$/\1(\2)\3/p')
+			__start_watcher "$pairs" "$SESSION_DIR/$cur_session"
+		fi
+
+		printf "\033[1;3${DASH_COLOR}m"
+		printf "Watcher '$watcher_name' ${to}d.\n"
+		printf "${UNSET_ANSI}${UNSET_ANSI}"
+	else
+		printf "\033[1;31m"
+		printf "Could not enable watcher '$watcher_name'\n"
+	fi
+
+	__input_to_exit
 }
 
-# disable watchers, don't run this watcher when creating tmux sessions
+# Disable watchers, should be runned within an existing wfmux tmux session.
+# This operation sets off watchers so that they cannot run when a new wfmux
+# tmux session is initiated
 func_rwatchers() {
 	__ed_watcher -
 }
 
-# fancy view of the watchers
+# Fancy view of the state of all watchers belonging to the project in question
 func_view() {
 	:;
 }
 
-# Cycle through std(out&stderr) of project watchers
+# Cycle through std(out&stderr) of watchers
 func_cycle() {
 	local cur_session=`__get_cur_session`
 	local project_fifos="$SESSION_DIR/$cur_session/fifos"
@@ -970,8 +1017,9 @@ func_cycle() {
 			watcher_name=${fifo%.fifo}
 			if [ -n "$watcher_name" ]
 			then
-				printf "\033[1;4${DASH_COLOR}${watcher_name}${UNSET_ANSI}${BOLD}\n"
-				cat "$fifo" | less --RAW-CONTROL-CHARS
+				{ printf "\033[1;4${DASH_COLOR}${watcher_name}${UNSET_ANSI}${BOLD}\n"
+				  cat "$fifo"
+				} | less --RAW-CONTROL-CHARS
 				printf "$UNSET_ANSI"
 			fi
 		done
