@@ -211,8 +211,9 @@ func_main() {
 ## we won't have to rely on `set -u`, we would want to output a custom 
 ## error message if one of these variables aren't set/sane.
 check_config_variables() {
-	local is_set
+	local is_set para
 	local error="$PROGRAM: ('$WFMUX_CONFIG'):"
+
 	for para in \
 		         USE_XDG \
 		         RUNNER \
@@ -577,7 +578,7 @@ func_explore() {
 
 ## select project files to open
 func_select() {
-	local file torun
+	local file
 	local new_window=true
 	local sh=${SHELL##*/}
 	local project_dir=`__get_project_dir`
@@ -602,16 +603,18 @@ func_select() {
 			if [ $? = 0 ] && [ -n "$mime_type" ]
 			then
 				# use `subtype' whenever `type' is `application' otherwise use `type'
-				test "${mime_type%/*}" = application && mime=${mime_type#*/} || mime="${mime_type%/*}"
+				test x"${mime_type%/*}" = x"application" && mime=${mime_type#*/} || mime="${mime_type%/*}"
 
 				local opener=$(printf "$PROGRAMS" | sed -ne "s/^$mime:[[:space:]]*\([^[:space:]]*\)/\1/p")
 				opener=${opener:-$EDITOR}
 				opener=${opener:-vim}
 				{ 
-					if which "$opener" 1>&2
+					which "$opener" 1>&2
+					if [ $? -eq 0 ]
 					then
 						# Put in list of all TUI applications that takes a $file as argument
-						if printf "$opener" | grep -qE '^vim|ranger|cmus|nvim|nnn|kak$'
+						printf "$opener" | grep -qE '^vim|ranger|cmus|nvim|nnn|kak$'
+						if [ $? -eq 0 ]
 						then
 							printf "$opener '$file'"
 						else
@@ -799,7 +802,7 @@ __push() {
 					kill -KILL $!
 
 					test x"$failed" = x"Yes" && c=1mFailed || c=${DASH_COLOR}mDone
-					printf "\b\033[1;3%s\033[0m\n" "$c"
+					printf "\b\033[1;3%s$UNSET_ANSI\n" "$c"
 				done
 
 				# To avoid saving tokens!
@@ -845,13 +848,13 @@ func_awatcher() {
 				e[$watcher_name]
 				EOF
 				printf "\033[1;3${DASH_COLOR}m"
-				printf "'${watcher_name}' was successfully added to the list of watchers\n"
+				printf "'$watcher_name' was successfully added to the list of watchers\n"
 			else
 				printf "\033[1;31m"
 				printf "Could not find the list of commands.\n" >&2
 				printf "these commands should be located at '$COMMANDS'\n" >&2
 			fi
-			printf "\033[0m\033[0m"
+			printf "${UNSET_ANSI}${UNSET_ANSI}"
 
 			__input_to_exit
 		fi
@@ -860,47 +863,47 @@ func_awatcher() {
 
 # remove watchers from the watcher list
 func_rwatcher() {
-	local watcher_name
-	local project_session="$SESSION_DIR/`__get_cur_session`"
+	local cur_session=`__get_cur_session`
+	local project_session="$SESSION_DIR/$cur_session"
 	local watch_config="$project_session/watch"
 
-	if [ -r "$watch_config" -a -s "$watch_config" ]
+	[ -n "$cur_session" ] || return
+	[ -r "$watch_config" -a -s "$watch_config" ] || return
+
+	local watcher_name=$(cat "$watch_config" | sed -ne 's/^s[-+]\[\(\w*\)\]:.*$/\1/p')
+	if [ -n "$watcher_name" ]
 	then
-		watcher_name=$(cat "$watch_config" | sed -ne 's/^s[-+]\[\(\w*\)\]:.*$/\1/p')
+		watcher_name=$(printf "$watcher_name" | eval "$SEARCHER")
 		if [ -n "$watcher_name" ]
 		then
-			watcher_name=$(printf "$watcher_name" | eval "$SEARCHER")
-			if [ -n "$watcher_name" ]
+			printf "\033[1;4m"
+			if cat "$watch_config" | grep -q "^e\[$watcher_name\]"
 			then
-				printf "\033[1;4m"
-				if cat "$watch_config" | grep -q "^e\[$watcher_name\]"
+				sed -i "/^s+\[$watcher_name\]:/,/^e\[$watcher_name\]/d" "$watch_config"
+				if [ $? -eq 0 ]
 				then
-					sed -i "/^s+\[$watcher_name\]:/,/^e\[$watcher_name\]/d" "$watch_config"
-					if [ $? -eq 0 ]
+					if [ -r "$project_session/$watcher_name.pid" ]
 					then
-						if [ -r "$project_session/$watcher_name.pid" ]
-						then
-							pid=$(cat "$project_session/$watcher_name.pid")
-							kill -KILL "$pid" >/dev/null 2>&1
-						fi
-						printf "\033[1;3${dash_color}m"
-						printf "Watcher '$watcher_name' successfully deleted\n"
-					else
-						printf "\033[1;31m"
-						printf "Could not delete watcher\n"
+						pid=$(cat "$project_session/$watcher_name.pid")
+						kill -KILL "$pid" >/dev/null 2>&1
 					fi
+					printf "\033[1;3${dash_color}m"
+					printf "Watcher '$watcher_name' successfully deleted\n"
 				else
 					printf "\033[1;31m"
-					printf "Error: could not find scope of definition of '$watcher_name'\n"
+					printf "Could not delete watcher\n"
 				fi
-				printf "\033[0m\033[0m"
+			else
+				printf "\033[1;31m"
+				printf "Error: could not find scope of definition of '$watcher_name'\n"
 			fi
-		else
-			printf "you do not have any watcher\n"
+			printf "${UNSET_ANSI}${UNSET_ANSI}"
 		fi
-
-		__input_to_exit
+	else
+		printf "you do not have any watcher\n"
 	fi
+
+	__input_to_exit
 }
 
 __ed_watcher() {
@@ -921,16 +924,18 @@ __ed_watcher() {
 				local to=disable
 
 				[ x$state = x"+" ] && to=enable
-				printf "\033[4m\033[3{$DASH_COLOR}m"
+				printf "\033[4m\033[3${DASH_COLOR}m"
 
 				sed -ie "s/^s.[$watcher_name]/^s$state[$watcher_name]/" "$watch_config"
 
 				printf "Watcher '$watcher_name' ${to}d\n"
-				printf "\033[0m\033[0m"
+				printf "${UNSET_ANSI}${UNSET_ANSI}"
 			fi
 		else
 			printf "you do not have any watcher\n"
 		fi
+
+		__input_to_exit
 	fi
 }
 
@@ -949,13 +954,28 @@ func_view() {
 	:;
 }
 
-# Cycle through stdout&stderr of watchers
+# Cycle through std(out&stderr) of project watchers
 func_cycle() {
 	local cur_session=`__get_cur_session`
-	local project_session_dir="$SESSION_DIR/$cur_session"
+	local project_fifos="$SESSION_DIR/$cur_session/fifos"
 
 	[ -z "$cur_session" ] && return
-	
+	local watcher_name
+
+	cd "$project_fifo"
+	if [ $? -eq 0 ]
+	then
+		for fifo in *
+		do
+			watcher_name=${fifo%.fifo}
+			if [ -n "$watcher_name" ]
+			then
+				printf "\033[1;4${DASH_COLOR}${watcher_name}${UNSET_ANSI}${BOLD}\n"
+				cat "$fifo" | less --RAW-CONTROL-CHARS
+				printf "$UNSET_ANSI"
+			fi
+		done
+	fi
 }
 
 # Wrap all operations, plugins appear here
