@@ -910,25 +910,28 @@ func_rwatcher() {
 }
 
 __ed_watcher() {
-	local state=$1
-	local to=disable
-	local watcher_name
-	local project_session="$session_dir/`__get_cur_session`"
-	local watch_config="$project_session/watch"
+	local cur_session=`__get_cur_session`
+	local watch_config="$session_dir/$cur_session/watch"
 
-	[ x$state = x"+" ] && to=enable
+	[ -z "$cur_session" ] && return
 	if [ -r "$watch_config" -a -s "$watch_config" ]
 	then
-		watcher_name=$(cat "$watch_config" | sed -ne 's/^s[-+]\[\(\w*\)\]:.*$/\1/p')
+		local watcher_name=$(cat "$watch_config" | sed -ne 's/^s[-+]\[\(\w*\)\]:.*$/\1/p')
+
 		if [ -n "$watcher_name" ]
 		then
 			watcher_name=$(printf "$watcher_name" | eval "$searcher")
 			if [ -n "$watcher_name" ]
 			then
-				printf "\033[4m\033[3{$dash_color}m"
-				sed -ie "s/^s.[$watcher_name]/^s$state[$watcher_name]/" "$watch_config"
-				printf "Watcher '$watcher_name' ${to}d\n"
+				local state=$1
+				local to=disable
 
+				[ x$state = x"+" ] && to=enable
+				printf "\033[4m\033[3{$dash_color}m"
+
+				sed -ie "s/^s.[$watcher_name]/^s$state[$watcher_name]/" "$watch_config"
+
+				printf "Watcher '$watcher_name' ${to}d\n"
 				printf "\033[0m\033[0m"
 			fi
 		else
