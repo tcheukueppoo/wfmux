@@ -298,15 +298,15 @@ display_dashboard() {
 			term_w=$(stty -F /dev/tty size | cut -d' ' -f2)
 			if   [ $term_h -lt 32 -o $term_w -lt 97  ]
 			then
-				_size=ss
+				_size=SS
 			elif [ $term_h -lt 43 -o $term_w -lt 155 ]
 			then
-				_size=ms
+				_size=MS
 			else
-				_size=ls
+				_size=LS
 			fi
-			eval 'logo_h=$(printf "$logo_'$_size'" | wc -l);
-				  logo_w=$(printf "$logo_'$_size'" | eval "$max")'
+			eval 'logo_h=$(printf "$LOGO_'$_size'" | wc -l);
+				  logo_w=$(printf "$LOGO_'$_size'" | eval "$max")'
 
 			logo_h=$(expr $logo_h + `_gen_key_helper | wc -l`)
 			gen_w=$(_gen_key_helper | eval "$max")
@@ -319,8 +319,8 @@ display_dashboard() {
 				gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
 			fi
 
-			printf "${CLEAR_SCREEN}${PUT_COLOR}${BOLD}"
-			eval 'printf "$logo_'$_size'"' | {
+			printf "${CLEAR_SCREEN}${put_color}${BOLD}"
+			eval 'printf "$LOGO_'$_size'"' | {
 				while read i
 				do
 					_print $y $x "$(printf "$i" | tr 'x' ' ')"
