@@ -775,7 +775,7 @@ __push() {
 			local remotes=$(printf "$WFMUX_REMOTE" | eval "$SEARCHER")
 			local session_path="$SESSION_DIR/$(__get_cur_session)"
 
-			if [ -s "$session_path" ]
+			if [ -s "$session_path/user" ]
 			then
 				username=$(cat "$session_path/user")
 			else
