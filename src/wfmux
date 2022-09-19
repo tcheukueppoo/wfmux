@@ -3,14 +3,18 @@
 #set -x
 set -ue
 
+readonly PROGRAM=${0##*/}
+
 readonly ALT_SCREEN='\033[?1049h'
 readonly NORMAL_SCREEN='\033[?1049l'
 readonly HIDE_CUR='\033[?25l'
 readonly SHOW_CUR='\033[?25h'
 readonly CLEAR_SCREEN='\033[2J'
 readonly BOLD='\033[1m'
+readonly UNDERLINE='\033[4m'
+readonly RED='\033[31m'
 readonly UNSET_ANSI='\033[0m'
-readonly PROGRAM=${0##*/}
+
 readonly CONFIG_DIR=${XDG_CONFIG_HOME:-"$HOME/.config"}
 readonly WFMUX_CONFIG_DIR="${CONFIG_DIR%%/}/wfmux"
 readonly COMMANDS="$WFMUX_CONFIG_DIR/commands"
@@ -73,23 +77,29 @@ readonly WFMUX=$(cat<<EOF
 EOF
 )
 
+WFMUX_CONFIG="$WFMUX_CONFIG_DIR/wfmux.conf"
+
+# Default configuration if external config file does not exist
+COLOR=4
+SUCCESS="\033[1;3${COLOR}m"
+
 TOK=tok
 GITLAB_TOK_NAME=gitlab_token_name
-WFMUX_CONFIG="$WFMUX_CONFIG_DIR/wfmux.conf"
-USE_XDG=yes
+
 RUNNER=entr
-RUNNER_TEMPLATES="$HOME/.config/wfmux/rtemplate"
-DASH_COLOR=4
+RUNNER_TEMPLATES="$HOME/.config/wfmux/commands"
 EXPLORER=nnn
-IGNORE=.git
-SEARCHER='fzf --multi --border=bottom --margin=25%'
+
 WINDOW_ATTRIBUTES_REST=20x20+10+20
 WINDOW_ATTRIBUTES_FILE_SELECTOR=20x20+10+20
 WINDOW_ATTRIBUTES_INPUT_BOX=20x20+10+20
+
 TBIND_OPS==
 TBIND_EXPLORE=BSpace
 TBIND_SELECT=Enter
 
+IGNORE=.git
+SEARCHER='fzf --multi --border=bottom --margin=25%'
 PROJECT_DIRECTORY=$(cat <<-EOF
 	$HOME/projects
 	$HOME/aprojects
@@ -97,13 +107,13 @@ PROJECT_DIRECTORY=$(cat <<-EOF
 	EOF
 )
 
+USE_XDG=yes
 PROGRAMS=$(cat <<-EOF
 	pdf:      zathura
 	text:     nvim
-	video:    ffmpeg
+	video:    ffplay
 	audio:    aplay
 	image:    feh
-	database: program_name
 	EOF
 )
 
@@ -242,7 +252,7 @@ check_config_variables() {
 		expr "$WINDOW_ATTRIBUTES_FILE_SELECTOR" : "$window_regex" || _config_die WINDOW_ATTRIBUTES_FILE_SELECTOR
 		expr "$WINDOW_ATTRIBUTES_INPUT_BOX"     : "$window_regex" || _config_die WINDOW_ATTRIBUTES_INPUT_BOX
 		expr "$USE_XDG"                         : 'true\|false$'  || _config_die USE_XDG
-		expr "$DASH_COLOR"                      : '[0-9]$'        || _config_die DASH_COLOR
+		expr "$COLOR"                           : '[0-9]$'        || _config_die COLOR
 	} >/dev/null
 
 	for i in EXPLORER RUNNER SEARCHER
@@ -261,7 +271,6 @@ check_config_variables() {
 }
 
 display_dashboard() {
-	local put_color="\033[3${DASH_COLOR:-9}m"
 	local max="awk 'BEGIN{len = 0}; {nlen = length(\$0); if (nlen > len) len = nlen;}; END{print len}'"
 
 	# generate help message for the dashboard
@@ -319,7 +328,7 @@ display_dashboard() {
 				gen_x=$(expr $x + \( $logo_w - $gen_w  \) / 2)
 			fi
 
-			printf "${CLEAR_SCREEN}${put_color}${BOLD}"
+			printf "${CLEAR_SCREEN}${SUCCESS}${BOLD}"
 			eval 'printf "$LOGO_'$_size'"' | {
 				while read i
 				do
@@ -781,8 +790,8 @@ __push() {
 					git push "$force" --set-upstream "$proto://$my_tok@$remote/$username/$project_name.git" "$branch" >/dev/null 2>&1 || failed=Yes
 					kill -KILL $!
 
-					test x"$failed" = x"Yes" && c=1mFailed || c=${DASH_COLOR}mDone
-					printf "\b\033[1;3%s$UNSET_ANSI\n" "$c"
+					test x"$failed" = x"Yes" && c="${RED}Failed" || c="${SUCCESS}Done"
+					printf "\b$c$UNSET_ANSI\n"
 				done
 
 				# To avoid saving tokens!
@@ -855,7 +864,7 @@ func_awatcher() {
 		local files=`__get_files`
 		if [ -n "$files" ]; then
 
-			printf "\033[1;4m"
+			printf "$UNDERLINE"
 			if [ -r "$COMMANDS" ]
 			then
 				case $one_shot in
@@ -874,10 +883,10 @@ func_awatcher() {
 					EOF
 					;;
 				esac >>"$watch_config"
-				printf "\033[1;3${DASH_COLOR}m"
+				printf "$SUCCESS"
 				printf "'$watcher_name' was successfully added to the list of watchers\n"
 			else
-				printf "\033[1;31m"
+				printf "$RED"
 				printf "Could not find the list of commands.\n" >&2
 				printf "these commands should be located at '$COMMANDS'\n" >&2
 			fi
@@ -904,7 +913,7 @@ func_rwatcher() {
 		local watcher_name=$(printf "$watcher_names" | eval "$SEARCHER")
 		if [ -n "$watcher_name" ]
 		then
-			printf "\033[1;4m"
+			printf "$UNDERLINE"
 			cat "$watch_config" | grep -q "^e\[$watcher_name\]"
 
 			if [ $? -eq 0 ]
@@ -917,14 +926,14 @@ func_rwatcher() {
 						pid=$(cat "$project_session/fifos/$watcher_name.pid")
 						kill -KILL "$pid" >/dev/null 2>&1
 					fi
-					printf "\033[1;3${DASH_COLOR}m"
+					printf "$SUCCESS"
 					printf "Watcher '$watcher_name' successfully deleted\n"
 				else
-					printf "\033[1;31m"
+					printf "$RED"
 					printf "Could not delete watcher\n"
 				fi
 			else
-				printf "\033[1;31m"
+				printf "$RED"
 				printf "Error: could not find scope of definition of '$watcher_name'\n"
 			fi
 			printf "${UNSET_ANSI}${UNSET_ANSI}"
@@ -964,7 +973,7 @@ func_ewatcher() {
 
 	[ -z "$cur_session" ] && return
 
-	printf "\033[4m"
+	printf "$UNDERLINE"
 
 	local watcher_name=$(__ed_watcher "$watch_file" +)
 	if [ $? -eq 0 ]
@@ -978,13 +987,14 @@ func_ewatcher() {
 			__start_watcher "$pairs" "$project_session"
 		fi
 
-		printf "\033[1;3${DASH_COLOR}m"
+		printf "$SUCCESS"
 		printf "Watcher '$watcher_name' enabled.\n"
 		printf "${UNSET_ANSI}${UNSET_ANSI}"
 	else
-		printf "\033[1;31m"
+		printf "$RED"
 		printf "Could not enable watcher '$watcher_name'\n"
 	fi
+	printf "${UNSET_ANSI}${UNSET_ANSI}"
 
 	__input_to_exit
 }
@@ -999,25 +1009,28 @@ func_rwatchers() {
 
 	[ -z "$cur_session" ] && return
 
-	printf "\033[4m"
+	printf "$UNDERLINE"
 
 	local watcher_name=$(__ed_watcher "$watch_file" -)
 	if [ $? -eq 0 ]
 	then
-		printf "\033[1;3${DASH_COLOR}m"
+		printf "$SUCCESS"
 		printf "Watcher '$watcher_name' disabled.\n"
 		printf "${UNSET_ANSI}${UNSET_ANSI}"
 	else
-		printf "\033[1;31m"
+		printf "$RED"
 		printf "Could not disable watcher '$watcher_name'\n"
 	fi
+	printf "${UNSET_ANSI}${UNSET_ANSI}"
+
+	__input_to_exit
 }
 
-# Fancy view of the state of all watchers belonging to the project in question
+# Fancy view of all watchers belonging to the project in question
 # Definition of the view
 #             --[ project_name ]--
-#    PID:          not running(red), running(dash_color)
-#    WATCHER_NAME: disable(red), enabled(dash_color)
+#    PID:          not running(red), running($COLOR)
+#    WATCHER_NAME: disable(red), enabled($COLOR)
 #    o/m         : o, not monitored by $runner otherwise m
 #
 #    WATCHER_NAME   PID    o/m  COMMAND
@@ -1025,7 +1038,43 @@ func_rwatchers() {
 #    watcher_name_2 pid_2  m    command_2
 #    watcher_name_3 pid_3  m    command_3
 func_view() {
-	:;
+	local i j project_name=`__get_project_dir` project_session=`__get_cur_session`
+
+	[ -z "$project_name" ] && return
+	project_name=$(basename "$project_name")
+
+	printf "${UNDERLINE}${SUCCESS}"
+	printf "$project_name\n\n"
+	printf "${UNSET_ANSI}${UNSET_ANSI}"
+	printf "${BOLD}PID${UNSET_ANSI}:          not running(${RED}red${UNSET_ANSI}), running(${SUCCESS}this color${UNSET_ANSI})\n"
+	printf "${BOLD}WATCHER_NAME${UNSET_ANSI}: disable(${RED}red${UNSET_ANSI}), enabled(${SUCCESS}this color${UNSET_ANSI})\n"
+	printf "${BOLD}O/M${UNSET_ANSI}         : ${BOLD}O${UNSET_ANSI} = oneshot, ${BOLD}M${UNSET_ANSI} = not oneshot\n\n"
+
+
+	local watcher_file="$SESSION_DIR/`__get_cur_session`/watch"
+	cat "$watcher_file" | sed -e '' | while read watcher
+	do
+		_name="$(printf "$watcher" | awk '{print $1}')"
+		pid_file="$SESSION_DIR/$project_session/$_name/pid"
+		[ -s "$pid_file" ] && _pid=$(cat "$pid_file") || _pid=X
+	
+		[ ${#pid}  -gt $j ] && j=${#pid}
+		[ ${#name} -gt $i ] && i=${#name}
+
+		pid="${pid}${pid:+"\n"}$_pid"
+		name="${name}${name:+"\n"}$_name"
+		stat="${stat}${stat:+"\n"}""$(printf "$watcher" | awk '{print $2}')"
+		shot="${shot}${shot:+"\n"}""$(printf "$watcher" | awk '{print $3}')"
+		comm="${comm}${comm:+"\n"}""$(printf "$watcher" | awk '{print $4}')"
+	done
+
+	printf "%${i}s |%${j}s |%-4s |%s\n" "WATCHER_NAME" "PID" "O/M" "COMMAND"
+	printf "%${i}s |%${j}s |%-4s |%s\n" "" "" "" ""
+
+	while true; do
+		[ ${#name} -eq 0 ] && break
+		printf "%${i}s |%${j}s |%-4s |%s\n" "$_name" "$_pid" "$_stat" "$_comm"
+	done
 }
 
 func_ksession() {
@@ -1048,7 +1097,7 @@ func_cycle() {
 			watcher_name=${fifo%.fifo}
 			if [ -n "$watcher_name" ]
 			then
-				{ printf "\033[1;4${DASH_COLOR}${watcher_name}${UNSET_ANSI}${BOLD}\n"
+				{ printf "${SUCCESS}${watcher_name}${UNSET_ANSI}${BOLD}\n"
 				  cat "$fifo"
 				} | less --RAW-CONTROL-CHARS
 				printf "$UNSET_ANSI"
