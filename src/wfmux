@@ -706,8 +706,7 @@ func_branch() {
 		then
 			SEARCHER="$SEARCHER --print-query"
 		fi
-
-		local branch=$(git branch | sed -e 's/^\(\*\?\) *\(.*\)$/\2\1/' | eval "$SEARCHER" | tail -n1)
+		local branch=$(git branch --all | sed -e 's|^\(\*\?\) *\(.*\)$|\2\1|; s|^\(\([^/]\+/\)\+\)\(.\+\)$|\3|' | awk '/\*$/{ dup = substr($0, 1, length($0) - 1) }; $0 != dup{ print }' | sort | uniq | eval "$SEARCHER" | tail -n1)
 
 		branch=${branch%*}
 		if [ -n "$branch" ]
@@ -763,7 +762,7 @@ __push() {
 			if [ -n "$remotes" ]; then
 				local force=${1:---force}
 				local proto=https
-				local branch=$(git branch | sed -ne 's,^* \(.*\),\1,p')
+				local branch=$(git branch | sed -ne 's|^\* \(.\+\)|\1|p')
 				local git_config=$(cat .git/config)
 
 				printf "%s\n" "$remotes" | while read remote
