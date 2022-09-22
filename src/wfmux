@@ -849,14 +849,7 @@ func_awatcher() {
 		fi
 
 		__get_files() {
-			local args=$(
-				printf "$IGNORE" |
-				sed -e '
-					${ s/\(.*\)/-name "\1"/; q; };
-					1,${ s/\(.*\)/-name "\1" -or /; }
-			    ' |
-				tr '\n' ' '
-			)
+			local args=$(printf "$IGNORE" | sed -e '${ s/\(.*\)/-name "\1"/; q; };1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
 		    eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $SEARCHER"
 		}
 
@@ -1042,30 +1035,28 @@ func_view() {
 	[ -z "$project_name" ] && return
 	project_name=$(basename "$project_name")
 
-	printf "${UNDERLINE}${SUCCESS}"
-	printf "$project_name\n\n"
-	printf "${UNSET_ANSI}${UNSET_ANSI}"
-	printf "${BOLD}PID${UNSET_ANSI}:          not running(${RED}red${UNSET_ANSI}), running(${SUCCESS}this color${UNSET_ANSI})\n"
+	printf "${UNDERLINE}${SUCCESS}${project_name}${UNSET_ANSI}${UNSET_ANSI}\n"
+	printf "${BOLD}PID${UNSET_ANSI}:          shotdown(${RED}red${UNSET_ANSI}), running(${SUCCESS}this color${UNSET_ANSI})\n"
 	printf "${BOLD}WATCHER_NAME${UNSET_ANSI}: disable(${RED}red${UNSET_ANSI}), enabled(${SUCCESS}this color${UNSET_ANSI})\n"
 	printf "${BOLD}O/M${UNSET_ANSI}         : ${BOLD}O${UNSET_ANSI} = oneshot, ${BOLD}M${UNSET_ANSI} = not oneshot\n\n"
 
-
-	local watcher_file="$SESSION_DIR/`__get_cur_session`/watch"
-	cat "$watcher_file" | sed -e '' | while read watcher
+	local watcher_file="$SESSION_DIR/$project_session/watch"
+	while read watcher
 	do
-		_name="$(printf "$watcher" | awk '{print $1}')"
+		watcher=$(printf "$watcher" | sed -ne "s///p")
+		_name=$(printf "$watcher" | awk 'BEGIN{RS="";FS="\n"};{print $1}')
 		pid_file="$SESSION_DIR/$project_session/$_name/pid"
 		[ -s "$pid_file" ] && _pid=$(cat "$pid_file") || _pid=X
 	
 		[ ${#pid}  -gt $j ] && j=${#pid}
 		[ ${#name} -gt $i ] && i=${#name}
 
-		pid="${pid}${pid:+"\n"}$_pid"
-		name="${name}${name:+"\n"}$_name"
-		stat="${stat}${stat:+"\n"}""$(printf "$watcher" | awk '{print $2}')"
-		shot="${shot}${shot:+"\n"}""$(printf "$watcher" | awk '{print $3}')"
-		comm="${comm}${comm:+"\n"}""$(printf "$watcher" | awk '{print $4}')"
-	done
+		pid=${pid}${pid:+"\n"}$_pid
+		name=${name}${name:+"\n"}$_name
+		stat=${stat}${stat:+"\n"}$(printf "$watcher" | awk 'BEGIN{RS="";FS="\n"};{print $2}')
+		shot=${shot}${shot:+"\n"}$(printf "$watcher" | awk 'BEGIN{RS="";FS="\n"};{print $3}')
+		comm=${comm}${comm:+"\n"}$(printf "$watcher" | awk 'BEGIN{RS="";FS="\n"};{print $4}')
+	done <"$watcher_file"
 
 	printf "%${i}s |%${j}s |%-4s |%s\n" "WATCHER_NAME" "PID" "O/M" "COMMAND"
 	printf "%${i}s |%${j}s |%-4s |%s\n" "" "" "" ""
