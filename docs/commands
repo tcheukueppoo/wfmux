@@ -5,15 +5,9 @@ make clean && make
 gcc *.c -o ./myprog
 
 # Perl
-## Module::Build commands
-./Build
-./Build test
-./Build install
-./Build && ./Build test && ./Build install
-
-## ExtUtils::MakeMaker
-perl Makefile.PL && make test
-make install
+## Module::Build, Extutils::MakeMaker
+perl Build.PL && ./Build && ./Build test
+perl Makefile.PL && make && make test
 
 # Raku
 # NodeJs

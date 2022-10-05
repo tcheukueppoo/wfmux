@@ -492,15 +492,22 @@ _dump() {
 	__set_whxy $WINDOW_ATTRIBUTES_FILE_SELECTOR
 	cat <<EOTX
 unbind M-$TBIND_SELECT
-bind M-$TBIND_SELECT if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux select"; }
+bind M-$TBIND_SELECT if-shell "command -v wfmux" {
+	display-popup -w $w -h $h -x $x -y $y -E "wfmux select"
+}
 EOTX
 
 	__set_whxy $WINDOW_ATTRIBUTES_REST
 	cat <<EOTX
 unbind M-$TBIND_EXPLORE
-bind M-$TBIND_EXPLORE if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux explore"; }
+bind M-$TBIND_EXPLORE if-shell "command -v wfmux" {
+	display-popup -w $w -h $h -x $x -y $y -E "wfmux explore"
+}
+
 unbind M-$TBIND_OPS
-bind M-$TBIND_OPS if-shell "command -v wfmux" { display-popup -w $w -h $h -x $x -y $y -E "wfmux ops"; }
+bind M-$TBIND_OPS if-shell "command -v wfmux" {
+	display-popup -w $w -h $h -x $x -y $y -E "wfmux ops"
+}
 EOTX
 
 }
@@ -531,9 +538,9 @@ func_switch() {
 		local session
 		local project_dir
 
-		tmux list-sessions -F '#S' | while read sname
-		do
+		tmux list-sessions -F '#S' | while read sname; do
 			session="$SESSION_DIR/$sname"
+
 			if [ -d "$session" ]
 			then
 				project_dir=$(cat "$session/path")
@@ -572,14 +579,14 @@ func_select() {
 	local sh=${SHELL##*/}
 	local project_dir=`__get_project_dir`
 
-	test -d "$project_dir" || return
+	[ -d "$project_dir" ] || return
 
 	local file=$(
 		args=$(printf "$IGNORE" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
 		eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $SEARCHER"
 	)
 
-	test -n "$file" || return
+	[ -n "$file" ] || return
 	file="$project_dir/$file"
 
 	__give_it_or_do_it() {
@@ -589,28 +596,26 @@ func_select() {
 			local mime
 			local mime_type=$(xdg-mime query filetype "$file")
 
-			if [ $? = 0 ] && [ -n "$mime_type" ]
+			if [ $? = 0 -a -n "$mime_type" ]
 			then
-				# use `subtype' whenever `type' is `application' otherwise use `type'
+				local opener
+				# Use `subtype' whenever `type' is `application' otherwise use `type'
 				test x"${mime_type%/*}" = x"application" && mime=${mime_type#*/} || mime="${mime_type%/*}"
 
-				local opener=$(printf "$PROGRAMS" | sed -ne "s/^$mime:[[:space:]]*\([^[:space:]]*\)/\1/p")
-				opener=${opener:-$EDITOR}
-				opener=${opener:-vim}
+				opener=$(printf "$PROGRAMS" | sed -ne "s/^$mime:[[:space:]]*\([^[:space:]]*\)/\1/p")
+				opener=${opener:-$EDITOR} && opener=${opener:-vim}
 				{ 
-					which "$opener" 1>&2
-					if [ $? -eq 0 ]
+				  if which "$opener" 1>&2
+				  then
+					# Put in list of all TUI applications that takes a $file as argument
+					printf "$opener" | grep -qE '^vim|ranger|cmus|nvim|nnn|kak$'
+					if [ $? -ne 0 ]
 					then
-						# Put in list of all TUI applications that takes a $file as argument
-						printf "$opener" | grep -qE '^vim|ranger|cmus|nvim|nnn|kak$'
-						if [ $? -eq 0 ]
-						then
-							printf "$opener '$file'"
-						else
-							{ trap '' HUP; eval "$opener '$file'"; } &
-							tmux display-popup -C
-						fi
+						{ trap '' HUP; eval "$opener '$file'"; } & tmux display-popup -C
+					else
+						printf "$opener '$file'"
 					fi
+				  fi
 				} 2>/dev/null
 			fi
 		else
@@ -621,7 +626,7 @@ func_select() {
 	local command=`__give_it_or_do_it`
 	if [ -n "$command" ]
 	then
-		# start from the most active, ignore the previous one
+		# Start from the most active, ignore the previous one
 		for window_index in `tmux list-windows -F '#I:#{window_active}' | awk -F[':'] '$2 == 1{pass = 1}; pass == 1{print $1}'`
 		do
 			local panes=$(tmux list-panes -t "$window_index" -F '#{pane_current_command}:#P:#{pane_active}')
@@ -702,12 +707,10 @@ func_branch() {
 	cd "$project_dir"
 	if [ $? = 0 ]
 	then
-		if printf "%s\n" "$SEARCHER" | grep -q '^fzf'
-		then
-			SEARCHER="$SEARCHER --print-query"
-		fi
-		local branch=$(git branch --all | sed -e 's|^\(\*\?\) *\(.*\)$|\2\1|; s|^\(\([^/]\+/\)\+\)\(.\+\)$|\3|' | awk '/\*$/{ dup = substr($0, 1, length($0) - 1) }; $0 != dup{ print }' | sort | uniq | eval "$SEARCHER" | tail -n1)
+		local branch
 
+		printf "%s\n" "$SEARCHER" | grep -q '^fzf' && SEARCHER="$SEARCHER --print-query"
+		branch=$(git branch --all | sed -e 's|^\(\*\?\) *\(.*\)$|\2\1|; s|^\(\([^/]\+/\)\+\)\(.\+\)$|\3|' | awk '/\*$/{ dup = substr($0, 1, length($0) - 1) }; $0 != dup{ print }' | sort | uniq | eval "$SEARCHER" | tail -n1)
 		branch=${branch%*}
 		if [ -n "$branch" ]
 		then
@@ -726,13 +729,8 @@ __input_to_exit() {
 	stty -echo -cooked && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
 }
 
-func_push() {
-	__push
-}
-
-func_fpush() {
-	__push --force
-}
+func_push()  { __push;         }
+func_fpush() { __push --force; }
 
 __push() {
 	{ command -v git    || return
@@ -806,7 +804,7 @@ __start_watcher() {
 
 	watcher_name=${1#?(}
 
-	# You would be seeing the std(out|err) of watchers via named-pipes
+	# You will be seeing the std(out|err) of watchers via named-pipes
 	local fifo="$project_session/fifos/$watcher_name.fifo"
 
 	test -p "$fifo" || mkfifo "$fifo"
@@ -814,7 +812,7 @@ __start_watcher() {
 		trap '' HUP
 		if [ $one_shot = 1 ]
 		then
-			# for self restarting programs(like framework developement server, etc.)
+			# for self restarting programs(e.g framework developement server)
 			eval "$cmd"
 		else
 			cat "$project_session/watch" \
@@ -844,9 +842,7 @@ func_awatcher() {
 	if [ -n "$watcher_name" ]
 	then
 		# Check if this name already exists in the watcher list
-		if [ -f "$watch_config" ]; then
-			cat "$watch_config" | grep -q "^s[-+][01]:\[$watcher_name\]" && return
-		fi
+		test -f "$watch_config" && cat "$watch_config" | grep -q "^s[-+][01]:\[$watcher_name\]" && return
 
 		__get_files() {
 			local args=$(printf "$IGNORE" | sed -e '${ s/\(.*\)/-name "\1"/; q; };1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
@@ -857,8 +853,7 @@ func_awatcher() {
 		if [ -n "$files" ]; then
 
 			printf "$UNDERLINE"
-			if [ -r "$COMMANDS" ]
-			then
+			if [ -r "$COMMANDS" ]; then
 				case $one_shot in
 				y | Y)
 					local cmd=$(cat "$COMMANDS" | grep -v '^[\t ]*\(#.*\)\?$' | eval "$SEARCHER")
@@ -900,19 +895,16 @@ func_rwatcher() {
 	test -r "$watch_config" -a -s "$watch_config" || return
 
 	local watcher_names=$(cat "$watch_config" | sed -ne 's/^s[-+]\[\(\w*\)\]:.*$/\1/p')
-	if [ -n "$watcher_names" ]
-	then
+	if [ -n "$watcher_names" ]; then
 		local watcher_name=$(printf "$watcher_names" | eval "$SEARCHER")
-		if [ -n "$watcher_name" ]
-		then
+
+		if [ -n "$watcher_name" ]; then
 			printf "$UNDERLINE"
 			cat "$watch_config" | grep -q "^e\[$watcher_name\]"
 
-			if [ $? -eq 0 ]
-			then
+			if [ $? -eq 0 ]; then
 				sed -i "/^s..\[$watcher_name\]:/,/^e\[$watcher_name\]/d" "$watch_config"
-				if [ $? -eq 0 ]
-				then
+				if [ $? -eq 0 ]; then
 					if [ -r "$project_session/fifos/$watcher_name.pid" ]
 					then
 						pid=$(cat "$project_session/fifos/$watcher_name.pid")
@@ -957,7 +949,7 @@ __ed_watcher() {
 }
 
 # Enable watchers, should be runned within an existing wfmux tmux session.
-# This operation sets on watchers to be runned upon session's startup.
+# This operation sets on watchers to be runned upon session startup.
 func_ewatcher() {
 	local cur_session=`__get_cur_session`
 	local project_session="$SESSION_DIR/$cur_session"
@@ -1018,7 +1010,7 @@ func_rwatchers() {
 	__input_to_exit
 }
 
-# Fancy view of all watchers belonging to the project in question
+# Fancy view of all watchers belonging to the project
 # Definition of the view
 #             --[ project_name ]--
 #    PID:          not running(red), running($COLOR)
