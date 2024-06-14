@@ -121,7 +121,6 @@ TBIND_OPS='='
 TBIND_EXPLORE='BSpace'
 TBIND_SELECT='Enter'
 
-IGNORE='.git'
 SEARCHER='fzf --multi --margin=25%'
 
 PROJECT_DIRS=$(cat <<END
@@ -132,11 +131,11 @@ END
 
 USE_XDG=true
 PROGRAMS=$(cat <<END
-text=vim
-video=ffplay
-audio=aplay
-pdf=zathura
-image=feh
+text:vim '%s'
+video:ffplay -hide_banner -loop 0 '%s'
+audio:aplay '%s'
+pdf:zathura '%s'
+image:feh '%s'
 END
 )
 
@@ -373,6 +372,10 @@ tmux_cur_pty () {
    tmux list-clients -F '#S:#{client_tty}' | grep -F "$(tmux_cur_session):" | cut -d: -f2
 }
 
+tmux_message () {
+   tmux display-message -d 1000 "$1"
+}
+
 shrink_project_dirs () {
    shrinked_dirs=$PROJECT_DIRS
 
@@ -412,23 +415,29 @@ shrink_project_dirs () {
    printf "$shrinked_dirs\n"
 }
 
-new_session () {
+get_project_list () {
+   line=1
    shrinked_dirs=`shrink_project_dirs`
-   project=$(
-      l=1 IFS='
-'
-      for pdir in $PROJECT_DIRS ; do
-         cd "$pdir"
-         for file in * ; do
-            if test -d "$file" \
-            && test -x "$file" ; then
-               printf "[%d]:%s/%s\n" $l "$(printf "$shrinked_dirs" | sed -ne "${l}p")" "$file"
-            fi
-         done
-         l=$(($l + 1))
-      done | eval "$SEARCHER"
-   )
 
+   IFS='
+'
+   for dir in $PROJECT_DIRS ; do
+      cd "$dir"
+
+      for file in * ; do
+         test -d "$file" || continue
+         test -x "$file" || continue
+
+         shrinked_dir=$(printf "$shrinked_dirs" | sed -ne "${line}p")
+         printf "[%d]:%s/%s\n" $line "$shrinked_dir" "$file"
+      done
+
+      line=$(($line + 1))
+   done
+}
+
+new_session () {
+   project=$(get_project_list | eval "$SEARCHER")
    test -z "$project" && return
 
    line=${project%%]*}
@@ -437,7 +446,8 @@ new_session () {
    project_name=$(basename "$project")
    project_dir="$project_ddir/$project_name"
 
-   cd "$project_dir"
+   cd -L "$project_dir"
+
    test -d .git && {
       touch .gitignore
       grep -q -- .wfmux .gitignore || {
@@ -456,6 +466,7 @@ new_session () {
       touch .wfmux/name
       session_name=`mktemp -u $project_name-XXXXXX`
       printf "$session_name" >>.wfmux/name
+      printf '.git\n' >>.wfmux/ignore
    fi
 
    if [ -z "${TMUX:-}" ] ; then
@@ -464,7 +475,7 @@ new_session () {
          display_dashboard
          tmux new-session -s "$session_name" -d
       }
-      tmux attach-session -t "$session_name"
+      exec tmux attach-session -t "$session_name"
    else
       pty=`tmux_cur_pty`
       tmux has-session -t "$session_name" 2>/dev/null || tmux new-session -s "$session_name" -d
@@ -491,7 +502,7 @@ start_watchers () {
       if test -z "$name"    \
       || test -z "$oneshot"  \
       || test -z "$cmd" ; then
-         die "$PROGRAM ('$watch_config'): Failed to parse a watcher config."
+         die "Error: failed to parse watcher: $watch_config'."
       fi
 
       start_watcher "$project_dir" $name $oneshot "$cmd"
@@ -541,7 +552,7 @@ bind   M-$TBIND_SELECT if-shell "command -v wfmux" {
                  -h $h           \\
                  -x $x            \\
                  -y $y             \\
-                 -E "wfmux select"
+                 -E "/home/kueppo/projects/wfmux/src/wfmux select"
 }
 END
 
@@ -571,21 +582,25 @@ opt_dump () { dump_config; }
 opt_tmux () { dump_config >>"$TMUX_CONF"; }
 
 get_project_dir () {
-   session_name=$1
-   test -z "$session_name" && return
+   test -z "$1" && return
 
+   session_name=$1
    project_name=$(printf "$session_name" | sed -ne 's/^\([^-]\+\)-.\{6\}$/\1/p')
    test -z "$project_name" && return
 
    OIFS=$IFS IFS='
 '
    for dir in $PROJECT_DIRS ; do
-      test -x "$dir" && cd "$dir" || continue
+      project_dir="$dir/$project_name"
 
-      if test -x "$project_name"  \
-      && test -f ".wfmux/name"     \
-      && test "$(cat .wfmux/name)" = $session_name ; then
-         printf "$dir/$project_name"
+      test -d "$project_dir"       \
+         && test -x "$project_dir"  \
+         && cd -L "$project_dir"     \
+         || continue
+
+      if test -f ".wfmux/name" \
+      && test $session_name = "$(cat .wfmux/name)" ; then
+         printf "$project_dir\n"
       fi
    done
 
@@ -593,60 +608,99 @@ get_project_dir () {
 }
 
 opt_switch () {
-   test -z "${TMUX:-}" && return
+   test -z "${TMUX:-}" && die "Error: wfmux must run in a tmux session"
 
-   wfmux_sessions= OIFS=$IFS IFS='
+   wfmux_sessions= IFS='
 '
    for session in `tmux list-sessions -F '#S'` ; do
-      project_dir=$(get_project_dir "$session")
-
-      test -z "$project_dir" && continue
+      test -z "$(get_project_dir "$session")" && continue
       wfmux_sessions="${wfmux_sessions}${session}\n"
    done
 
-   IFS=$OIFS
    test -z "$wfmux_sessions" && return
-
    session=$(printf "$wfmux_sessions" | eval "$SEARCHER")
 
-   if test -n "$session" ; then
-      pty=`tmux_cur_pty`
-      test -z "$pty" && return
-      tmux switch-client -c "$pty" -t "$session"
+   if [ -n "$session" ] ; then
+      tmux switch-client -c "$(tmux_cur_pty)" -t "$session"
    fi
 }
 
 ## Open tui file manager
 opt_explore () {
-   test -z "${TMUX:-}" && return
+   test -z "${TMUX:-}" && die "Error: wfmux must run in a tmux session."
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
 
-   test -z "$project_dir" && return
+   test -z "$project_dir"                                \
+      && tmux_message "This is not a wfmux tmux session"  \
+      && exit 1
+
    eval "$EXPLORER" "$project_dir"
 }
 
-## Select project files to open
+get_project_files () {
+   ignore= IFS='
+'
+   if test -s .wfmux/ignore ; then
+      for pattern in `cat .wfmux/ignore` ; do
+         ignore="${ignore}${ignore:+ -or}"
+         ignore="${ignore} -name '${pattern}'"
+      done
+   fi
+
+   if test -n "$ignore" ; then
+      eval find . '\(' "$ignore" '\)' -prune -or -type f -print
+   else
+      find . -type f -print
+   fi
+}
+
+## Select a project file to open
 opt_select () {
+   test -z "${TMUX:-}" && die "Error: wfmux must run in a tmux session."
+
+   project_dir=`get_project_dir "$(tmux_cur_session)"`
+
+   test -z "$project_dir"                                \
+      && tmux_message "This is not a wfmux tmux session"  \
+      && exit 1
+
+   cd -L "$project_dir"
+
+   filetype=
+   files=$(get_project_files | eval "$SEARCHER")
+   IFS='
+'
+   for file in $files ; do
+      command -v file >/dev/null                 \
+         && filetype=$(file --mime-type "$file")  \
+         && filetype=${filetype##*: }
+
+      test -z "$filetype"                  \
+         && command -v xdg-mime >/dev/null  \
+         && filetype=$(xdg-mime query filetype "$file")
+
+      if [ -z "$filetype" ] ; then
+         tmux-message "Couldn't determine the file type of '$file'."
+         exit 1
+      fi
+
+      expr "$filetype" : application >/dev/null  \
+         && filetype=${filetype##*/}              \
+         || filetype=${filetype%%/*}
+
+      printf "$filetype\n"
+      read
+      exit
+   done
+}
+
+## Select project files to open
+_opt_select () {
    new_window=true
    sh=${SHELL##*/}
-   project_dir=`__get_project_dir`
-
-   [ -d "$project_dir" ] || return
-
-   local file=$(
-      args=$(printf "$IGNORE" | sed -e '${ s/\(.*\)/-name "\1"/; q; }; 1,${ s/\(.*\)/-name "\1" -or /; }' | tr '\n' ' ')
-      eval "find '$project_dir' \( $args \) -prune -or -type f -print | sed -e 's,^$project_dir/,,' | $SEARCHER"
-   )
-
-   [ -n "$file" ] || return
-   file="$project_dir/$file"
 
    __give_it_or_do_it() {
-
-      if [ x"$USE_XDG" != xtrue ] ; then
-         mime=
-         mime_type=$(xdg-mime query filetype "$file")
 
          if [ $? = 0 -a -n "$mime_type" ] ; then
             opener=
@@ -667,9 +721,6 @@ opt_select () {
               fi
             } 2>/dev/null
          fi
-      else
-         printf "xdg-open '$file'"
-      fi
    }
 
    command=`__give_it_or_do_it`
