@@ -648,7 +648,7 @@ opt_wfmux_explore () {
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
 
-   if [ -z "$project_dir" ] ; then
+   if test -z "$project_dir" ; then
       tmux_message "This is not a wfmux tmux session"
       tmux display-popup -C
    else 
@@ -685,7 +685,7 @@ get_filetype () {
       filetype=$(file --mime-type "$file")
       filetype=${filetype##*: }
    else
-      tmux-message "Couldn't determine the file type of '$file'."
+      tmux-message "'$file': Couldn't determine the file type"
       return
    fi
 
@@ -733,7 +733,7 @@ opt_wfmux_open () {
          filetype=`get_filetype "$file"`
          test -z "$filetype" && continue
 
-         data=$(printf '%s' "$PROGRAMS" | sed -ne "/^tty=\(true\|false\),$filetype=/p")
+         data=$(printf '%s' "$PROGRAMS" | grep "^tty=\(true\|false\),$filetype=" | head -n1)
 
          test -z "$data" && {
             tmux_message "Unable to open '$file'"
@@ -761,31 +761,37 @@ opt_wfmux_open () {
 wfmux_run_cmd () {
    cmd=$1 use_tty=$2
 
-   if [ $use_tty = false ] ; then
+   test $use_tty = false && {
       nohup "$cmd" >/dev/null 2>&1
       return 0
-   fi
+   }
 
    panes=$(tmux list-panes -F '#{pane_current_command}:#P:#{pane_active}')
 
-   shell=${SHELL##*/}
-   idle_panes=$(printf '%s' "$panes" | sed -ne "s/^$shell:\(.\+\)$/\1/p")
+   test -z "${SHELL:-}" || {
+      tmux_message '$SHELL not defined'
+      tmux display-popup -C
+      return 0
+   }
+
+   idle_panes=$(printf '%s' "$panes" | grep "^${SHELL##*/}:")
 
    # If possible, run the command in an idle pane.
-   if [ -n "$idle_panes" ] ; then
+   if test -n "$idle_panes" ; then
       target=$(printf '%s' "$idle_panes" | grep ':1$')
       target=${target%:1}
 
-      test -z $target && {
+      test -z "$target" && {
          target=$(printf '%s' "$idle_panes" | sort -t: -k1,1n | head -n1)
          target=${target%:0}
       }
 
+      target=${target##*:}
       tmux send-keys -t "$target" "$cmd" C-m
 
    # Spawn a new pane in the current window to run the command
    # if there only one pane in the current window.
-   elif [ $(printf '%s' "$panes" | wc -l) -eq 0 ] ; then
+   elif test $(printf '%s' "$panes" | wc -l) -eq 0 ; then
 
       tmux split-window -h "$cmd"
 
@@ -797,50 +803,96 @@ wfmux_run_cmd () {
    return 0
 }
 
-opt_commit () {
-   __commit
+check_git () {
+   command -v git >/dev/null || {
+      tmux_message "git not installed"
+      tmux display-popup -C
+      exit 1
+   }
 }
 
-opt_acommit () {
-   __commit true
-}
-
-__commit () {
-   editor=$(printf "$PROGRAMS" | sed -ne 's/^[ \t]*text:[ \t]\+\(\w*\)$/\1/p')
-
-   editor=${editor:-$EDITOR}
-   editor=${editor:-vim}
-
-   { command -v git       || return
-     command -v "$editor" || return
-   } >/dev/null
-
-   project_dir=`__get_project_dir`
-
-   if [ -n "$project_dir" ] ; then
-      cd "$project_dir"
-      if [ $? = 0 ] ; then
-         amend=${1:-false}
-
-         git add .
-         if [ "$amend" = false ] ; then
-            tempfile=`mktemp /tmp/.git_XXXXXX`
-
-            $editor "$tempfile"
-            # Let git abord if we did not commit with a commit message
-            # than trying to introduce a `du'-like command
-            git commit --message "$(cat "$tempfile")"
-            rm -f "$tempfile"
-         else
-            git commit --amend
-         fi
-      fi
+check_project_tracked () {
+   if ! test -d .git ; then
+      tmux_message "The project isn't tracked by git"
+      tmux display-popup -C
    fi
 }
 
-opt_branch () {
-   command -v git >/dev/null || return
+wfmux_commit () {
+   test -z "${TMUX:-}" && die "Wfmux must run in a tmux session"
 
+   project_dir=`get_project_dir "$(tmux_cur_session)"`
+
+   if test -z "$project_dir" ; then
+      tmux_message "This is not a wfmux tmux session"
+      tmux display-popup -C
+   fi
+
+   check_git
+
+   cd -L "$project_dir"
+   check_project_tracked
+
+   if test -z "${EDITOR:-}" ; then
+      tmux_message 'Undefined $EDITOR'
+      tmux display-popup -C
+   fi
+
+   if command -v "$EDITOR" >/dev/null ; then
+      tmux_message "$EDITOR: Command not found"
+      tmux display-popup -C
+   fi
+
+   # Check if it's simply an amend
+   if test $# -gt 0 ; then
+      git commit "$@"
+      return $?
+   fi
+
+   changes=$(git status | sed -ne 's#[[:cntrl:]]\(\(modified\|deleted\): .+\)$#\1/p
+                                   s###p
+                                  ')
+
+   # Nothing to commit, simple return
+   test -z "$changes" && return 0
+
+   changes=$(printf '%s' "$changes" | eval "$MENU")
+
+   # Nothing was selected, simple return
+   test -z "$changes" && return 0
+   IFS='
+'
+   for change in $changes ; do
+      ctype=${change%%:*}
+      file=${change#*: }
+
+      test $ctype = renamed && continue
+      git add "$file"
+   done
+
+   git commit "$@"
+}
+
+opt_wfmux_commit () {
+   wfmux_commit
+}
+
+opt_wfmux_acommit () {
+   wfmux_commit --amend || tmux-message "Unable to amend"
+}
+
+opt_wfmux_branch () {
+   :;
+}
+
+wfmux_push () {
+   :;
+}
+
+opt_wfmux_push ()  { wfmux_push; }
+opt_wfmux_fpush () { wfmux_push --force; }
+
+opt_branch () {
    local project_dir=`__get_project_dir`
 
    cd "$project_dir"
