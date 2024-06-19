@@ -131,12 +131,12 @@ END
 
 USE_XDG_OPEN=false
 PROGRAMS=$(cat <<END
-tty=true,text=vim '#f'
-tty=true,directory=lf '#f'
-tty=true,video=ffplay -hide_banner -loop 0 '#f'
-tty=true,audio=ffplay -hide_banner -loop 0 '#f'
-tty=false,pdf=zathura '#f'
-tty=false,image=feh '#f'
+tty=true,text=vim '%s'
+tty=true,directory=lf '%s'
+tty=true,video=ffplay -hide_banner -loop 0 '%s'
+tty=true,audio=ffplay -hide_banner -loop 0 '%s'
+tty=false,pdf=zathura '%s'
+tty=false,image=feh '%s'
 END
 )
 
@@ -178,7 +178,7 @@ END
 }
 
 die () {
-   printf "$PROGRAM: $*\n" >&2
+   printf '%s: %s\n' "$PROGRAM" "$*" >&2
    exit 1
 }
 
@@ -193,9 +193,9 @@ main () {
             ;;
          -c|--config)
             test $# -eq 1 && WFMUX_CONFIG=$2 || usage 1
-            if ! test -e "$WFMUX_CONFIG" ; then
+            test -e "$WFMUX_CONFIG" || {
                die "Config file '$WFMUX_CONFIG' does not exist."
-            fi
+            }
             shift
             ;;
          -*)
@@ -204,9 +204,9 @@ main () {
          *)
             test -n "$opt_name" && usage 1
             opt_name=$1
-            if ! printf "$WFMUX_OPS" | grep -q "^$opt_name$" ; then
+            printf '%s' "$WFMUX_OPS" | grep -q "^$opt_name$" || {
                die "Unknown wfmux operation: $opt_name."
-            fi
+            }
             ;;
       esac
       shift
@@ -226,26 +226,29 @@ main () {
 ## `set -u`, we would want to output a custom error message if
 ## one of these variables aren't sane.
 check_config_variables () {
-   is_set=
    var=
-   conf_error=" ('$WFMUX_CONFIG'):"
+   is_set=
+
+   _die_conf () {
+      die " ('$WFMUX_CONFIG'): $*"
+   }
+
+   _val_error () {
+      _die_conf "Invalid value assigned to '$1'"
+   }
 
    for var in USE_XDG_OPEN WATCHER MENU FILE_MANAGER WIN_ATTR_OTHERS \
               WIN_ATTR_INPUT_BOX WIN_ATTR_FILE_SELECTOR PROJECT_DIRS  \
               TBIND_OPS TBIND_SELECT TBIND_EXPLORE ; do
 
       eval "is_set=\${$var:+true}"
-      test -z "$is_set" && die "$conf_error: '$var' isn't defined."
+      test -z "$is_set" && _die_conf "'$var' isn't defined"
    done
-
-   _val_error () {
-      die "$conf_error: Invalid value assigned to '$1'."
-   }
 
    ## Check if we've got sane values
    {
-      expr "$COLOR"        : '[0-9]$'       || _val_error COLOR
-      expr "$USE_XDG_OPEN" : 'true\|false$' || _val_error USE_XDG_OPEN
+      expr "$COLOR"        : '[0-9]$'           || _val_error COLOR
+      expr "$USE_XDG_OPEN" : '\(true\|false\)$' || _val_error USE_XDG_OPEN
 
       num_re='\([0-9]\|[1-9][0-9]\+\)'
       attr_re="${num_re}x${num_re}+${num_re}+${num_re}$"
@@ -253,15 +256,17 @@ check_config_variables () {
       for var in WIN_ATTR_OTHERS        \
                  WIN_ATTR_FILE_SELECTOR  \
                  WIN_ATTR_INPUT_BOX ; do
-         val=$(eval 'printf "$'$var'"')
 
+         val=$(eval 'printf "$'$var'"')
          expr "$val" : "$attr_re" || _val_error $var
       done
 
       for cmd in FILE_MANAGER WATCHER MENU ; do
-         eval 'command' '-v' "\${$cmd}"
-         test $? -ne 0 && die "$conf_error: Command '$cmd' not found."
+         if ! eval 'command' '-v' '$'"{$cmd}" ; then
+            _die_conf "Command '$cmd' not found"
+         fi
       done
+
    } >/dev/null
 
    OIFS=$IFS IFS='
@@ -269,18 +274,20 @@ check_config_variables () {
    project_dirs=
    for path in $PROJECT_DIRS ; do
 
-      if ! rpath=$(realpath -e "$path" 2>/dev/null) ; then
-         die "$conf_error: '$path' does not exist."
-      fi
+      rpath=$(realpath -e "$path" 2>/dev/null) || _die_conf "'$path' does not exist"
 
-      test -d "$rpath" || die "$conf_error: '$rpath' is not a directory."
-      test -r "$rpath" || die "$conf_error: cannot list contents of '$rpath'."
+      test -d "$rpath" || _die_conf "'$rpath' is not a directory."
+      test -r "$rpath" || _die_conf "cannot list contents of '$rpath'."
 
-      project_dirs="${project_dirs}${rpath}\n"
+      project_dirs=$(cat <<END
+$project_dirs
+${rpath}
+END
+)
    done
 
    IFS=$OIFS
-   PROJECT_DIRS=$(printf "$project_dirs")
+   PROJECT_DIRS=$(printf '%s' "$project_dirs")
 }
 
 display_dashboard () {
@@ -306,7 +313,7 @@ END
    }
 
    _tty_print () {
-      printf "\033[$1;$2f$3" >/dev/tty
+      printf '\033[%d;%df%s' "$1" "$2" "$3" >/dev/tty
    }
 
    # Save initial terminal setting, will set back after exiting dashboard
@@ -389,40 +396,40 @@ tmux_message () {
 shrink_project_dirs () {
    shrinked_dirs=$PROJECT_DIRS
 
-   for n in $(seq `printf "$shrinked_dirs\n" | wc -l`) ; do
-      path=$(printf "$shrinked_dirs" | sed -ne "${n}p")
+   for n in $(seq `printf '%s\n' "$shrinked_dirs" | wc -l`) ; do
+      path=$(printf '%s' "$shrinked_dirs" | sed -ne "${n}p")
 
-      # Check if it's already resolved.
+      # Check if it's already shrinked
       expr "$path" : / >/dev/null || continue
 
       name=${path#/}
       name=${name%%/*}
 
       # Check if $path is the only one.
-      test $(printf "$shrinked_dirs" | grep "^/$name/" | wc -l) -eq 1 && continue
+      test $(printf '%s' "$shrinked_dirs" | grep "^/$name/" | wc -l) -eq 1 && continue
 
       path=${path#/*/}
-      shrinked_dirs=$(printf "$shrinked_dirs" | sed -e "s#^/$name/#*/#")
+      shrinked_dirs=$(printf '%s' "$shrinked_dirs" | sed -e "s#^/$name/#*/#")
 
       # Shrink more
       OIFS=$IFS IFS=/
       for name in $path ; do
-         test $(printf "$shrinked_dirs" | grep "^\*/$name/" | wc -l) -eq 1 && continue
+         test $(printf '%s' "$shrinked_dirs" | grep "^\*/$name/" | wc -l) -eq 1 && continue
 
-         _shrinked_dirs=$(printf "$shrinked_dirs" | sed -e "s#^\*/$name/#*/#")
+         _shrinked_dirs=$(printf '%s' "$shrinked_dirs" | sed -e "s#^\*/$name/#*/#")
 
-         a=$(printf "$_shrinked_dirs" | sed -e 's/\*/.../')
-         b=$(printf "$a" | sort -u)
+         a=$(printf '%s' "$_shrinked_dirs" | sed -e 's/\*/.../')
+         b=$(printf '%s' "$a" | sort -u)
          test ${#a} -ne ${#b} && break
 
          shrinked_dirs=$_shrinked_dirs
       done
       IFS=$OIFS
 
-      shrinked_dirs=$(printf "$shrinked_dirs" | sed -e 's/\*/.../')
+      shrinked_dirs=$(printf '%s' "$shrinked_dirs" | sed -e 's/\*/.../')
    done
 
-   printf "$shrinked_dirs\n"
+   printf '%s\n' "$shrinked_dirs"
 }
 
 get_project_list () {
@@ -653,8 +660,6 @@ get_project_files () {
    ignore=
    project_dir=$1
 
-   cd -L "$project_dir"
-
    if test -s .wfmux/ignore ; then
       IFS='
 '
@@ -695,9 +700,9 @@ nohup () {
    { trap '' HUP; eval "$@"; } &
 }
 
-## Select a project file to open
+## Open a project file
 opt_wfmux_open () {
-   test -z "${TMUX:-}" && die "wfmux must run in a tmux session."
+   test -z "${TMUX:-}" && die "Wfmux must run in a tmux session"
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
 
@@ -706,6 +711,8 @@ opt_wfmux_open () {
       tmux display-popup -C
       exit 1
    fi
+
+   cd -L "$project_dir"
 
    files=$(get_project_files "$project_dir" | eval "$MENU")
 
@@ -716,7 +723,7 @@ opt_wfmux_open () {
       if test "$USE_XDG_OPEN" = true ; then
 
          command -v xdg-open >/dev/null || {
-            tmux_message "xdg-utils package not installed."
+            tmux_message "xdg-utils package not installed"
             tmux display-popup -C
             exit 1
          }
@@ -726,21 +733,23 @@ opt_wfmux_open () {
          filetype=`get_filetype "$file"`
          test -z "$filetype" && continue
 
-         esc_file=$(printf "$file" | sed -e 's|/|\\/|')
-         data=$(printf "$PROGRAMS" | sed -ne "/^tty=\(true\|false\),$filetype=/p")
+         data=$(printf '%s' "$PROGRAMS" | sed -ne "/^tty=\(true\|false\),$filetype=/p")
 
          test -z "$data" && {
-            tmux_message "Unable to open '$file'."
+            tmux_message "Unable to open '$file'"
             continue
          }
 
          use_tty=${data%,$filetype=*}
          use_tty=${use_tty#tty=}
-         cmd=$(printf "${data#*,$filetype=}" | sed -e 's|\([^\\]\)#f|\1%s|;s|\\#|#|g;p')
+
+         esc_file=$(printf '%s' "$file" | sed -e 's|/|\\/|')
+         cmd=${data#*,$filetype=}
+         cmd=$(printf "$cmd" "$file")
 
          bin=${cmd%% *}
          command -v "$bin" >/dev/null || {
-            tmux_message "Unable to open '$file', $bin: not found."
+            tmux_message "Unable to open '$file', $bin: not found"
             continue
          }
       fi
@@ -752,39 +761,40 @@ opt_wfmux_open () {
 wfmux_run_cmd () {
    cmd=$1 use_tty=$2
 
-   test $use_tty = false && {
+   if [ $use_tty = false ] ; then
       nohup "$cmd" >/dev/null 2>&1
       return 0
-   }
+   fi
 
-   fmt='#{pane_current_command}:#P:#{pane_active}'
-   panes=$(tmux list-panes -F "$fmt")
+   panes=$(tmux list-panes -F '#{pane_current_command}:#P:#{pane_active}')
 
-   idle_panes=$(printf "$panes" | sed -ne "s/^$SHELL:\(.\+\)$/\1/p")
+   shell=${SHELL##*/}
+   idle_panes=$(printf '%s' "$panes" | sed -ne "s/^$shell:\(.\+\)$/\1/p")
 
-   # Run the command in an idle pane if possible
-   test -n "$idle_panes" && {
-      target=$(printf "$idle_panes" | grep ':1$')
+   # If possible, run the command in an idle pane.
+   if [ -n "$idle_panes" ] ; then
+      target=$(printf '%s' "$idle_panes" | grep ':1$')
       target=${target%:1}
 
       test -z $target && {
-         target=$(printf "$idle_panes" | sort -t: -k1,1n | head -n1)
+         target=$(printf '%s' "$idle_panes" | sort -t: -k1,1n | head -n1)
          target=${target%:0}
       }
 
       tmux send-keys -t "$target" "$cmd" C-m
-      return 0
-   }
-   
+
    # Spawn a new pane in the current window to run the command
-   # if there only one pane in the current window
-   test $(printf "$panes" | wc -l) -eq 1 && {
-      tmux split-window -h "$command"
-      return 0
-   }
+   # if there only one pane in the current window.
+   elif [ $(printf '%s' "$panes" | wc -l) -eq 0 ] ; then
+
+      tmux split-window -h "$cmd"
 
    # In the worst case, run it in a new window.
-   tmux new-window "$cmd"
+   else
+      tmux new-window "$cmd"
+   fi
+
+   return 0
 }
 
 opt_commit () {
