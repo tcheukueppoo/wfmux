@@ -291,13 +291,15 @@ END
 }
 
 display_dashboard () {
-   awk_max='BEGIN { len = 0 }
-            {
-               nlen = length($0)
-               if (nlen > len)
-                  len = nlen
-            }
-            END { print len }'
+   awk_max='
+      BEGIN { len = 0 }
+      {
+         nlen = length($0)
+         if (nlen > len)
+            len = nlen
+      }
+      END { print len }
+   '
 
    # Dashboard message, explains how to use wfmux on tmux.
    _dashboard_msg () {
@@ -637,7 +639,7 @@ opt_wfmux_switch () {
    test -z "$wfmux_sessions" && return
    session=$(printf "$wfmux_sessions" | eval "$MENU")
 
-   if [ -n "$session" ] ; then
+   if test -n "$session" ; then
       tmux switch-client -c "$(tmux_cur_pty)" -t "$session"
    fi
 }
@@ -803,7 +805,7 @@ wfmux_run_cmd () {
    return 0
 }
 
-check_git () {
+test_git_installed () {
    command -v git >/dev/null || {
       tmux_message "git not installed"
       tmux display-popup -C
@@ -811,7 +813,7 @@ check_git () {
    }
 }
 
-check_project_tracked () {
+test_project_tracked () {
    if ! test -d .git ; then
       tmux_message "The project isn't tracked by git"
       tmux display-popup -C
@@ -821,52 +823,64 @@ check_project_tracked () {
 wfmux_commit () {
    test -z "${TMUX:-}" && die "Wfmux must run in a tmux session"
 
+   test_git_installed
+
    project_dir=`get_project_dir "$(tmux_cur_session)"`
 
    if test -z "$project_dir" ; then
       tmux_message "This is not a wfmux tmux session"
       tmux display-popup -C
+      return
    fi
 
-   check_git
-
-   cd -L "$project_dir"
-   check_project_tracked
+   cd -L "$project_dir"; test_project_tracked
 
    if test -z "${EDITOR:-}" ; then
       tmux_message 'Undefined $EDITOR'
       tmux display-popup -C
-   fi
-
-   if command -v "$EDITOR" >/dev/null ; then
+      return
+   elif command -v "$EDITOR" >/dev/null ; then
       tmux_message "$EDITOR: Command not found"
       tmux display-popup -C
+      return
    fi
 
-   # Check if it's simply an amend
-   if test $# -gt 0 ; then
-      git commit "$@"
-      return $?
-   fi
+   # Check if the git commit is simply an amend
+   earg='/^[[:cntrl:]]\+\(modified\|renamed\|deleted\|new file\):/ {
+           s/^[[:cntrl:]]\+\(.\)[^:]\+:[[:space:]]\+\(.\+\)/\1: \2/p
+           b
+         }
+         /^Untracked files:/ {
+           n
+           b l
+         }
+         :l
+         /^$/b
+         /^[[:cntrl:]]\+/ {
+           s/^[[:cntrl:]]\+\(.\+\)$/u: \1/p
+           n
+           b l
+         }'
+        
+   changes=$(git status | sed -ne "$earg")
 
-   changes=$(git status | sed -ne 's#[[:cntrl:]]\(\(modified\|deleted\): .+\)$#\1/p
-                                   s###p
-                                  ')
-
-   # Nothing to commit, simple return
-   test -z "$changes" && return 0
+   test -z "$changes" && test $# -eq 0 && {
+      tmux_message "Nothing to commit, working tree clean."
+      tmux display-popup -C
+      return
+   }
 
    changes=$(printf '%s' "$changes" | eval "$MENU")
 
-   # Nothing was selected, simple return
-   test -z "$changes" && return 0
+   test -z "$changes" && test $# -eq 0 && return
+
    IFS='
 '
    for change in $changes ; do
-      ctype=${change%%:*}
+      ctype=${change%%: *}
       file=${change#*: }
 
-      test $ctype = renamed && continue
+      test $ctype != 'modified' && continue
       git add "$file"
    done
 
@@ -884,13 +898,6 @@ opt_wfmux_acommit () {
 opt_wfmux_branch () {
    :;
 }
-
-wfmux_push () {
-   :;
-}
-
-opt_wfmux_push ()  { wfmux_push; }
-opt_wfmux_fpush () { wfmux_push --force; }
 
 opt_branch () {
    local project_dir=`__get_project_dir`
@@ -919,6 +926,13 @@ __input_to_exit () {
    printf "\nPress anything to quit!"
    stty -echo -cooked && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
 }
+
+wfmux_push () {
+   :;
+}
+
+opt_wfmux_push ()  { wfmux_push; }
+opt_wfmux_fpush () { wfmux_push --force; }
 
 opt_push  () { __push;         }
 opt_fpush () { __push --force; }
