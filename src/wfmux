@@ -23,6 +23,8 @@ readonly CACHE="${CACHE_DIR%%/}/wfmux"
 readonly SESSION_DIR="${CACHE_DIR%%/}/wfmux/sessions"
 readonly TMUX_CONF="$HOME/.tmux.conf"
 
+readonly NL=$(printf '\n_')
+
 mkdir -p "$CONFIG_DIR" "$CACHE_DIR" "$CACHE" "$SESSION_DIR" "$WFMUX_CONFIG_DIR"
 
 # Large size
@@ -81,10 +83,10 @@ EOL
 
 WFMUX_CONFIG="$WFMUX_CONFIG_DIR/wfmux.conf"
 WFMUX_OPS=$(cat<<END
-open
+new
 tmux
 dump
-select
+open
 explore
 nsession
 switch
@@ -98,6 +100,7 @@ fpush
 commit
 acommit
 checkout
+cbranch
 ops
 END
 )
@@ -230,12 +233,12 @@ check_config_variables () {
    var=
    is_set=
 
-   _die_conf () {
+   die_conf () {
       die " ('$WFMUX_CONFIG'): $*"
    }
 
-   _val_error () {
-      _die_conf "Invalid value assigned to '$1'"
+   val_error () {
+      die_conf "Invalid value assigned to '$1'"
    }
 
    for var in USE_XDG_OPEN WATCHER MENU FILE_MANAGER WIN_ATTR_OTHERS \
@@ -248,23 +251,23 @@ check_config_variables () {
 
    ## Check if we've got sane values
    {
-      expr "$COLOR"        : '[0-9]$'           || _val_error COLOR
-      expr "$USE_XDG_OPEN" : '\(true\|false\)$' || _val_error USE_XDG_OPEN
+      expr "$COLOR"        : '[0-9]$'           || val_error COLOR
+      expr "$USE_XDG_OPEN" : '\(true\|false\)$' || val_error USE_XDG_OPEN
 
-      num_re='\([0-9]\|[1-9][0-9]\+\)'
-      attr_re="${num_re}x${num_re}+${num_re}+${num_re}$"
+      num_reg='\([0-9]\|[1-9][0-9]\+\)'
+      att_reg="${num_reg}x${num_reg}+${num_reg}+${num_reg}$"
 
       for var in WIN_ATTR_OTHERS        \
                  WIN_ATTR_FILE_SELECTOR  \
                  WIN_ATTR_INPUT_BOX ; do
 
-         val=$(eval 'printf "$'$var'"')
-         expr "$val" : "$attr_re" || _val_error $var
+         val=$(eval 'printf $'$var)
+         expr "$val" : "$att_reg" || val_error $var
       done
 
       for cmd in FILE_MANAGER WATCHER MENU ; do
          if ! eval 'command' '-v' '$'"{$cmd}" ; then
-            _die_conf "Command '$cmd' not found"
+            die_conf "Command '$cmd' not found"
          fi
       done
 
@@ -273,18 +276,15 @@ check_config_variables () {
    OIFS=$IFS IFS='
 '
    project_dirs=
+
    for path in $PROJECT_DIRS ; do
+      rpath=$(realpath -e "$path" 2>/dev/null)
 
-      rpath=$(realpath -e "$path" 2>/dev/null) || _die_conf "'$path' does not exist"
+      test $? -eq 0    || die_conf "'$path' does not exist"
+      test -d "$rpath" || die_conf "'$rpath' is not a directory"
+      test -r "$rpath" || die_conf "cannot list contents of '$rpath'"
 
-      test -d "$rpath" || _die_conf "'$rpath' is not a directory."
-      test -r "$rpath" || _die_conf "cannot list contents of '$rpath'."
-
-      project_dirs=$(cat <<END
-$project_dirs
-${rpath}
-END
-)
+      project_dirs="$project_dirs${project_dirs:+${NL%?}}$rpath"
    done
 
    IFS=$OIFS
@@ -393,14 +393,14 @@ tmux_cur_pty () {
 }
 
 tmux_message () {
-   tmux display-message -d 1000 "$1"
+   tmux display-message -d 2500 "$1"
 }
 
 shrink_project_dirs () {
-   shrinked_dirs=$PROJECT_DIRS
+   sdirs=$PROJECT_DIRS
 
-   for n in $(seq `printf '%s\n' "$shrinked_dirs" | wc -l`) ; do
-      path=$(printf '%s' "$shrinked_dirs" | sed -ne "${n}p")
+   for n in $(seq `printf '%s\n' "$sdirs" | wc -l`) ; do
+      path=$(printf '%s' "$sdirs" | sed -ne "${n}p")
 
       # Check if it's already shrinked
       expr "$path" : / >/dev/null || continue
@@ -409,35 +409,35 @@ shrink_project_dirs () {
       name=${name%%/*}
 
       # Check if $path is the only one.
-      test $(printf '%s' "$shrinked_dirs" | grep "^/$name/" | wc -l) -eq 1 && continue
+      test $(printf '%s' "$sdirs" | grep "^/$name/" | wc -l) -eq 1 && continue
 
       path=${path#/*/}
-      shrinked_dirs=$(printf '%s' "$shrinked_dirs" | sed -e "s#^/$name/#*/#")
+      sdirs=$(printf '%s' "$sdirs" | sed -e "s#^/$name/#*/#")
 
       # Shrink more
       OIFS=$IFS IFS=/
       for name in $path ; do
-         test $(printf '%s' "$shrinked_dirs" | grep "^\*/$name/" | wc -l) -eq 1 && continue
+         test $(printf '%s' "$sdirs" | grep "^\*/$name/" | wc -l) -eq 1 && continue
 
-         _shrinked_dirs=$(printf '%s' "$shrinked_dirs" | sed -e "s#^\*/$name/#*/#")
+         _sdirs=$(printf '%s' "$sdirs" | sed -e "s#^\*/$name/#*/#")
 
-         a=$(printf '%s' "$_shrinked_dirs" | sed -e 's/\*/.../')
-         b=$(printf '%s' "$a" | sort -u)
+         a=$(printf '%s' "$_sdirs" | sed -e 's/\*/.../')
+         b=$(printf '%s' "$a"      | sort -u)
          test ${#a} -ne ${#b} && break
 
-         shrinked_dirs=$_shrinked_dirs
+         sdirs=$_sdirs
       done
       IFS=$OIFS
 
-      shrinked_dirs=$(printf '%s' "$shrinked_dirs" | sed -e 's/\*/.../')
+      sdirs=$(printf '%s' "$sdirs" | sed -e 's/\*/.../')
    done
 
-   printf '%s\n' "$shrinked_dirs"
+   printf '%s\n' "$sdirs"
 }
 
 get_project_list () {
    line=1
-   shrinked_dirs=`shrink_project_dirs`
+   sdirs=`shrink_project_dirs`
 
    IFS='
 '
@@ -448,8 +448,8 @@ get_project_list () {
          test -d "$file" || continue
          test -x "$file" || continue
 
-         shrinked_dir=$(printf "$shrinked_dirs" | sed -ne "${line}p")
-         printf "[%d]:%s/%s\n" $line "$shrinked_dir" "$file"
+         sdir=$(printf "$sdirs" | sed -ne "${line}p")
+         printf "[%d]:%s/%s\n" $line "$sdir" "$file"
       done
 
       line=$(($line + 1))
@@ -487,7 +487,7 @@ new_session () {
       touch .wfmux/name
       session_name=`mktemp -u $project_name-XXXXXX`
       printf "$session_name" >>.wfmux/name
-      printf '.git\n' >>.wfmux/ignore
+      printf '.git\n'        >>.wfmux/ignore
    fi
 
    if [ -z "${TMUX:-}" ] ; then
@@ -874,7 +874,10 @@ wfmux_commit () {
 
    test -z "$gstatus"  \
       && test $# -eq 0  \
-      && { tmux display-popup -C; return; }
+      && {
+      tmux display-popup -C
+      return
+   }
 
    IFS='
 '
@@ -884,7 +887,7 @@ wfmux_commit () {
 
       test $ctype != M       \
          && test $ctype != U  \
-         && return
+         && continue
 
       git add "$file" 2>/dev/null || {
          tmux_message "$file: Couldn't add file to the index"
@@ -908,25 +911,24 @@ git_branches () {
    IFS='
 '
    for lbranch in `git branch --list --no-color` ; do
-      test x"${lbranch#?}" == x"*" && continue
+      test x"${lbranch% *}" = x'*' && continue
 
-      lbranch=${lbranch# }
+      lbranch=${lbranch#  }
       rbranch=$(git rev-parse --abbrev-ref "$lbranch@{u}" 2>/dev/null)
 
-      test $? -eq 0                                   \
+      test $? -eq 0                                     \
          && printf 'L %s -> %s\n' "$lbranch" "$rbranch"  \
-         || printf 'L %s\n' "$lbranch"
+         || printf 'L %s\n'       "$lbranch"
    done
 
    git branch --remote --no-color | tail -n +2 | sed -e 's/^ */R /'
 }
 
 wfmux_new_branch () {
-   lbranch=${branch##*/}
+   rbranch=$1
+   lbranch=${rbranch##*/}
 
-   git branch --list --no-color | grep -q "^$lbranch"
-
-   if test $? -ne 0 ; then
+   git show-ref --verify --quiet refs/heads/$lbranch && {
 
       printf '%s: Branch already exists\n' "$branch"
       printf 'New name (y/n)? '
@@ -934,18 +936,15 @@ wfmux_new_branch () {
       test "$input" != y && return
 
       printf ': '
-      read new_branch
-      test -z "$new_branch" && return
+      read lbranch
+      test -z "$lbranch" && return
 
-      emsg=$(git check-ref-format --branch "$new_branch" 2>&1)
-      test $? -ne 0              \
-         && tmux_message "$emsg"  \
-         && return
+      git check-ref-format --branch "$lbranch" >/dev/null
+      test $? -ne 0 && return 1
+   }
 
-      git checkout -b "$new_branch" --track="$branch"
-   fi
+   git checkout -b "$lbranch" --track "$rbranch"
 }
-
 
 wfmux_checkout () {
    tmux_or_die
@@ -969,32 +968,54 @@ wfmux_checkout () {
       return 1
    }
 
-   branch=$(git_branches | eval "$MENU")
-
+   branch=`git_branches | eval "$MENU"`
    test -z "$branch" && return
 
-   btype=${branch% *}
+   btype=${branch%% *}
    branch=${branch#? }
-   rbranch=${branch##* -> }
    branch=${branch%% *}
 
-   test $btype = R && {
-      wfmux_new_branch "$branch"
-      return
-   }
+   if test $btype = L ; then
+      git checkout "$branch" >/dev/null
+   else
+      wfmux_new_branch "$branch" #>/dev/null
+   fi
 
-   emsg=$(eval git checkout "$branch" 2>&1) || {
-      tmux_message "$emsg"
-      return 1
-   }
+   test $? -eq 0 && tmux_message "Switched to '$branch'"
+
+   input_2_quit
+   tmux display-popup -C
 }
 
 opt_wfmux_checkout  () { wfmux_checkout --clean-worktree; }
 opt_wfmux_fcheckout () { wfmux_checkout;                  }
 
-input_quit () {
-   printf '\n%s' 'Press anything to quit!'
+opt_wfmux_cbranch () {
+   tmux_or_die
+
+   requires git || return
+
+   project_dir=`get_project_dir "$(tmux_cur_session)"`
+
+   test -z "$project_dir"   \
+      && not_wfmux_session   \
+      && return 1
+
+   cd -L "$project_dir"
+
+   is_git_repository || return
+
+   tmux_message "$(git branch --show-current)"
+   tmux display-popup -C
+}
+
+input_2_quit () {
+   init_stty=`stty -g`
+
+   printf '\nInput anything to quit!'
    stty -echo -cooked && dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
+   stty "$init_stty"
+   printf '\n'
 }
 
 wfmux_push () {
