@@ -3,8 +3,6 @@
 #set -x
 set -u
 
-readonly PROGRAM=${0##*/}
-
 readonly ESC_ALT_SCREEN='\033[?1049h'
 readonly ESC_NORMAL_SCREEN='\033[?1049l'
 readonly ESC_HIDE_CUR='\033[?25l'
@@ -17,18 +15,22 @@ readonly ESC_UNSET_ANSI='\033[0m'
 
 readonly CONFIG_DIR=${XDG_CONFIG_HOME:-"$HOME/.config"}
 readonly WFMUX_CONFIG_DIR="${CONFIG_DIR%%/}/wfmux"
-readonly COMMANDS="$WFMUX_CONFIG_DIR/commands"
-readonly CACHE_DIR=${XDG_CACHE_HOME:-"$HOME/.cache"}
-readonly CACHE="${CACHE_DIR%%/}/wfmux"
-readonly SESSION_DIR="${CACHE_DIR%%/}/wfmux/sessions"
 readonly TMUX_CONF="$HOME/.tmux.conf"
+
+# Shell launched by `tmux display-popup -E <cmd>' does not seem to be
+# a login and interactive shell and hence .local/bin is not added to
+# path variable.
+readonly LOCAL_BIN="$HOME/.local/bin"
+
+# Some watcher commands frequently used in some projects.
+readonly WATCHER_TEMPLATES="$WFMUX_CONFIG_DIR/watchers"
 
 readonly NL=$(printf '\n_')
 
-mkdir -p "$CONFIG_DIR" "$CACHE_DIR" "$CACHE" "$SESSION_DIR" "$WFMUX_CONFIG_DIR"
+mkdir -p "$CONFIG_DIR" "$WFMUX_CONFIG_DIR"
 
 # Large size
-readonly WFMUX_LS=$(cat <<EOF
+readonly WFMUX_LS=$(cat <<END
                                 ┌────────────
                                 │
                                 │                                            ┌───────
@@ -46,29 +48,30 @@ readonly WFMUX_LS=$(cat <<EOF
                │                └─                                           │
          ──────┘                                                             │
                                                                              │
-EOF
+END
 )
 
 # Medium size
-readonly WFMUX_MS=$(cat <<EOF
-                     ┌─────                           ┌───
-                     │                                │
-        ┌─┐          │                      ┌──┐      │
-        │ │       ┌──┼───┬───┬───┬────┐     │  │  ┌───┘
-        │ │   ┌─  │  │   │   │   │    │     │  │  │
-────────┘ │   │   │  │   │   │   │    │     │  └──┼───┐
-          │   │   │  │   │   │   │    │     │     │   │
-          ├───┴───┘  │  ─┘   └─  │    └─────┘     │   │
-          │          └─          └──              │   │
-          │                              ─────────┘   │
-       ───┘                                           │
-EOF
+readonly WFMUX_MS=$(cat <<END
+                     ┌─────────                      ┌───
+                     │                               │
+        ┌─┐          │                     ┌──┐      │
+        │ │       ┌──┼───┬───┬───┬───┐     │  │  ┌───┘
+        │ │   ┌─  │  │   │   │   │   │     │  │  │
+────────┘ │   │   │  │   │   │   │   │     │  └──┼───┐
+          │   │   │  │   │   └─  │   │     │     │   │
+          ├───┴───┘  │  ─┘       │   └─────┘     │   │
+          │          └─          └──             │   │
+          │                  ────────────────────┘   │
+     ─────┘                                          │
+                                                     │
+END
 )
 
 # Small size
 readonly WFMUX_SS='WFMUX'
 
-readonly WFMUX=$(cat<<EOL
+readonly WFMUX=$(cat<<END
 
      ┌──────────────┤ WFMUX
     ┌┴────────────────────────────────────────┐
@@ -78,7 +81,7 @@ readonly WFMUX=$(cat<<EOL
     ├─ Input ⟨return⟩ to drop to the terminal │
     │                                         │
     └─────────────────────────────────────────┘
-EOL
+END
 )
 
 WFMUX_CONFIG="$WFMUX_CONFIG_DIR/wfmux.conf"
@@ -109,20 +112,15 @@ END
 COLOR=4
 SUCCESS="\033[1;3${COLOR}m"
 
-TOK=tok
-GITLAB_TOK_NAME=gitlab_token_name
-
 WATCHER='entr'
-WATCHER_TEMPLATES="$HOME/.config/wfmux/commands"
 FILE_MANAGER='lf'
 
-WIN_ATTR_OTHERS='20x20+10+20'
-WIN_ATTR_FILE_SELECTOR='20x20+10+20'
-WIN_ATTR_INPUT_BOX='20x20+10+20'
+WIN_ATT_OPT='20x20+10+20'
+WIN_ATT_INPUT_BOX='20x20+10+20'
 
-TBIND_OPS='='
+TBIND_OPEN='Enter'
 TBIND_EXPLORE='BSpace'
-TBIND_SELECT='Enter'
+TBIND_OPS='='
 
 MENU='fzf --multi --margin=25%'
 
@@ -133,11 +131,12 @@ END
 )
 
 USE_XDG_OPEN=false
+
 PROGRAMS=$(cat <<END
 tty=true,text=vim '%s'
 tty=true,directory=lf '%s'
-tty=true,video=ffplay -hide_banner -loop 0 '%s'
-tty=true,audio=ffplay -hide_banner -loop 0 '%s'
+tty=false,video=ffplay -hide_banner -loop 0 '%s'
+tty=true,audio=ffplay  -hide_banner -loop 0 -nodisp '%s'
 tty=false,pdf=zathura '%s'
 tty=false,image=feh '%s'
 END
@@ -145,23 +144,22 @@ END
 
 usage () {
    cat <<END
-Build an awesome dev workflow using tmux, fzf, nnn, and entr.
+Build an awesome dev workflow using tmux, fzf, lf, entr and more.
 
-Usage: wfmux [ ( -c | --config ) CONF ] OPT_NAME
-       wfmux [ -h | --help ]
-
+Usage: wfmux [ -h | --help ]
+       wfmux [ ( -c | --config ) CONF ] OPT_NAME
+       
 Options:
      -h, --help         print this help message.
      -c, --config CONF  load CONF configuration file.
 
 OPT_NAME:
-    new          fuzzyly select a project and open a new tmux session.
-    nsession     create a new project tmux session while in a tmux session.
-    switch       switch between project sessions
-    explore      open your favorite file manager on a popup tmux pane.
-    open         fuzzyly select a file to open provided that they exist
-                 a recently used tmux session which carries the name of your
-                 project.   
+    new          Select a project and open its new wfmux tmux session.
+    nsession     Create a new wfmux tmux session of a project while in a
+                 tmux session.
+    switch       Switch between wfmux tmux sessions
+    explore      Open file manager to a project directory on a popup pane.
+    open         Select a file to open provided that they exist ...
     commit       add to the index and commit changes to local repository.
     acommit      replace the tip of the current branch by creating a new commit
     checkout     fuzzyly switch between branches of your local repository.
@@ -182,7 +180,7 @@ END
 }
 
 die () {
-   printf '%s: %s\n' "$PROGRAM" "$*" >&2
+   printf '%s: %s.\n' "$0" "$*" >&2
    exit 1
 }
 
@@ -197,78 +195,64 @@ main () {
             ;;
          -c|--config)
             test $# -eq 1 && WFMUX_CONFIG=$2 || usage 1
-            test -e "$WFMUX_CONFIG" || {
-               die "Config file '$WFMUX_CONFIG' does not exist."
-            }
+            if ! test -e "$WFMUX_CONFIG" ; then
+               die "Config '$WFMUX_CONFIG' does not exist"
+            fi
             shift
             ;;
          -*)
-            die "Unknown option '$1', please try \`$PROGRAM --help'."
+            die "Unknown option '$1', please try \`$0 --help'"
             ;;
          *)
             test -n "$opt_name" && usage 1
             opt_name=$1
-            printf '%s' "$WFMUX_OPS" | grep -q "^$opt_name$" || {
-               die "Unknown wfmux operation: $opt_name."
-            }
+            printf '%s' "$WFMUX_OPS" | grep -q "^$opt_name$"
+            if test $? -ne 0 ; then
+               die "Unknown wfmux operation: $opt_name"
+            fi
             ;;
       esac
       shift
    done
 
    test -f "$WFMUX_CONFIG" && {
-      test -r "$WFMUX_CONFIG" || die "No permission to read '$WFMUX_CONFIG'."
-      . "$WFMUX_CONFIG"       || die "Non-zero exit status when sourcing config ."
+      test -r "$WFMUX_CONFIG" || die "No permission to read '$WFMUX_CONFIG'"
+      . "$WFMUX_CONFIG"       || die "Non-zero exit status when sourcing config"
    }
 
    check_config_variables
    eval "opt_wfmux_$opt_name"
 }
 
-## Check if variables are unset or null and if set then check if
-## the data matches our expectations we won't have to rely on
-## `set -u`, we would want to output a custom error message if
-## one of these variables aren't sane.
 check_config_variables () {
    var=
    is_set=
 
    die_conf () {
-      die " ('$WFMUX_CONFIG'): $*"
+      die "('$WFMUX_CONFIG'): $*"
    }
 
-   val_error () {
+   v_error () {
       die_conf "Invalid value assigned to '$1'"
    }
 
-   for var in USE_XDG_OPEN WATCHER MENU FILE_MANAGER WIN_ATTR_OTHERS \
-              WIN_ATTR_INPUT_BOX WIN_ATTR_FILE_SELECTOR PROJECT_DIRS  \
+   for var in USE_XDG_OPEN WATCHER MENU FILE_MANAGER     \
+              WIN_ATT_OPT WIN_ATT_INPUT_BOX PROJECT_DIRS  \
               TBIND_OPS TBIND_SELECT TBIND_EXPLORE ; do
 
-      eval "is_set=\${$var:+true}"
-      test -z "$is_set" && _die_conf "'$var' isn't defined"
+      eval 'is_set=${'$var':+true}'
+      test -z "$is_set" && die_conf "'$var' isn't defined"
    done
 
    ## Check if we've got sane values
    {
-      expr "$COLOR"        : '[0-9]$'           || val_error COLOR
-      expr "$USE_XDG_OPEN" : '\(true\|false\)$' || val_error USE_XDG_OPEN
-
-      num_reg='\([0-9]\|[1-9][0-9]\+\)'
-      att_reg="${num_reg}x${num_reg}+${num_reg}+${num_reg}$"
-
-      for var in WIN_ATTR_OTHERS        \
-                 WIN_ATTR_FILE_SELECTOR  \
-                 WIN_ATTR_INPUT_BOX ; do
-
-         val=$(eval 'printf $'$var)
-         expr "$val" : "$att_reg" || val_error $var
-      done
+      expr "$COLOR"        : '[0-9]$'           || v_error COLOR
+      expr "$USE_XDG_OPEN" : '\(true\|false\)$' || v_error USE_XDG_OPEN
 
       for cmd in FILE_MANAGER WATCHER MENU ; do
-         if ! eval 'command' '-v' '$'"{$cmd}" ; then
+         eval 'command' '-v' '${'$cmd'}' || {
             die_conf "Command '$cmd' not found"
-         fi
+         }
       done
 
    } >/dev/null
@@ -303,7 +287,7 @@ display_dashboard () {
    '
 
    # Dashboard message, explains how to use wfmux on tmux.
-   _dashboard_msg () {
+   dashboard_msg () {
       cat <<END
 The following are tmux bindings related to wfmux.
 
@@ -315,7 +299,7 @@ input any key to exit dashboard
 END
    }
 
-   _tty_print () {
+   tty_print () {
       printf '\033[%d;%df%s' "$1" "$2" "$3" >/dev/tty
    }
 
@@ -327,11 +311,12 @@ END
    {
       term_h= term_w=
       while [ 1 ] ; do
+
          new_size=`stty -F /dev/tty size`
-         if test "$new_size" = "$term_h $term_w" ; then
+         test "$new_size" = "$term_h $term_w" && {
             sleep 1
             continue
-         fi
+         }
 
          term_h=$(printf "$new_size\n" | cut -d' ' -f1)
          term_w=$(printf "$new_size\n" | cut -d' ' -f2)
@@ -345,12 +330,12 @@ END
          eval 'wfmux_h=$(printf "$WFMUX_'$_size'" | wc -l)
                wfmux_w=$(printf "$WFMUX_'$_size'" | awk "$awk_max")'
 
-         wfmux_h=$(expr $wfmux_h + `_dashboard_msg | wc -l`)
+         wfmux_h=$(expr $wfmux_h + `dashboard_msg | wc -l`)
 
          x=$((($term_w - $wfmux_w) / 2))
          y=$((($term_h - $wfmux_h) / 2))
 
-         msg_w=$(_dashboard_msg | awk "$awk_max")
+         msg_w=$(dashboard_msg | awk "$awk_max")
          if test $msg_w -gt $wfmux_w ; then
             msg_x=$(($x - ($msg_w - $wfmux_w) / 2))
          else
@@ -362,14 +347,14 @@ END
          IFS='
 '
          for line in $(eval 'printf "$WFMUX_'$_size'"') ; do
-            _tty_print $y $x "$line"
+            tty_print $y $x "$line"
             y=$(($y + 1))
          done
 
          printf "$ESC_UNSET_ANSI"
-         for line in `_dashboard_msg` ; do
+         for line in `dashboard_msg` ; do
             y=$(($y + 1))
-            _tty_print "$y" "$msg_x" "$line"
+            tty_print "$y" "$msg_x" "$line"
          done
       done
    } &
@@ -393,7 +378,7 @@ tmux_cur_pty () {
 }
 
 tmux_message () {
-   tmux display-message -d 2500 "$1"
+   tmux display-message -d 2500 "$*"
 }
 
 shrink_project_dirs () {
@@ -483,7 +468,8 @@ new_session () {
    && expr "$(cat .wfmux/name)" : "$project_name-.\\{6\\}$" >/dev/null ; then
       session_name=`cat .wfmux/name`
    else
-      mkdir -p .wfmux
+      rm -rf .wfmux
+      mkdir .wfmux
       touch .wfmux/name
       session_name=`mktemp -u $project_name-XXXXXX`
       printf "$session_name" >>.wfmux/name
@@ -523,7 +509,7 @@ start_watchers () {
       if test -z "$watcher_name"  \
       || test -z "$is_oneshot"     \
       || test -z "$watcher_cmd" ; then
-         die "failed to parse watcher: $watch_config'."
+         die "failed to parse watcher: $watch_config'"
       fi
 
       start_watcher "$project_dir" $watcher_name $is_oneshot "$watcher_cmd"
@@ -545,57 +531,57 @@ opt_wfmux_new () {
 
    test -z "$input" && return
 
-   if expr "$input" : '\(F\|f\)$' >/dev/null ; then
+   if expr "$input" : 'f$' >/dev/null ; then
       new_session
    elif expr "$input" : '\([0-9]\|[1-9][0-9]\+\)$' >/dev/null ; then
       session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
       test -n "$session_name" && tmux attach-session -t "$session_name"
    else
-      tmux new-session -s "$(printf "$input")"
+      tmux new-session -s "$(printf '%s' "$input")"
    fi
 }
 
 set_whxy () {
-   window_attribute=$1
+   name=$1 win_att=$2
 
-   y=$(printf "$window_attribute" | sed -e 's/^.*+\([0-9]\+\)$/\1/')
-   x=$(printf "$window_attribute" | sed -e 's/^.*+\([0-9]\+\)+.*/\1/')
-   w=$(printf "$window_attribute" | sed -e 's/^\([0-9]\+\)x.*/\1/')
-   h=$(printf "$window_attribute" | sed -e 's/^.*x\([0-9]\+\).*/\1/')
+   num_re='[0-9]\|[1-9][0-9]\+'
+   com_re='C\|P\|M\|W'
+
+   x_re="\($com_re\|R\|$num_re\)"
+   y_re="\($com_re\|S\|$num_re\)"
+
+   size_re="\(\($num_re\)%\?\)"
+
+   c=$(printf '%s' "$win_att" | sed -ne "s/^${size_re}x${size_re}+${x_re}+${y_re}$/w=\1 h=\3 x=\5 y=\6/p")
+
+   test -z "$c" && die "Invalid value assigned to '$name'"
+   eval "$c"
 }
 
 dump_config () {
-   set_whxy $WIN_ATTR_FILE_SELECTOR
-   cat <<END
-unbind M-$TBIND_SELECT
-bind   M-$TBIND_SELECT if-shell "command -v wfmux" {
-   display-popup -w $w          \\
-                 -h $h           \\
-                 -x $x            \\
-                 -y $y             \\
-                 -E "/home/kueppo/projects/wfmux/src/wfmux select"
-}
-END
+   set_whxy WIN_ATT_OPT $WIN_ATT_OPT
 
-   set_whxy $WIN_ATTR_OTHERS
    cat <<END
+unbind M-$TBIND_OPEN
+bind   M-$TBIND_OPEN display-popup -w $w                    \\
+                                   -h $h                     \\
+                                   -x $x                      \\
+                                   -y $y                       \\
+                                   -E "$LOCAL_BIN/wfmux open"
+
 unbind M-$TBIND_EXPLORE
-bind   M-$TBIND_EXPLORE if-shell "command -v wfmux" {
-   display-popup -w $w           \\
-                 -h $h            \\
-                 -x $x             \\
-                 -y $y              \\
-                 -E "wfmux explore"
-}
+bind   M-$TBIND_EXPLORE display-popup -w $w                        \\
+                                      -h $h                         \\
+                                      -x $x                          \\
+                                      -y $y                           \\
+                                      -E "$LOCAL_BIN/wfmux explore"
 
 unbind M-$TBIND_OPS
-bind   M-$TBIND_OPS if-shell "command -v wfmux" {
-   display-popup -w $w       \\
-                 -h $h        \\
-                 -x $x         \\
-                 -y $y          \\
-                 -E "wfmux ops"
-}
+bind   M-$TBIND_OPS display-popup -w $w                   \\
+                                  -h $h                    \\
+                                  -x $x                     \\
+                                  -y $y                      \\
+                                  -E "$LOCAL_BIN/wfmux ops"
 END
 }
 
@@ -921,7 +907,7 @@ git_branches () {
          || printf 'L %s\n'       "$lbranch"
    done
 
-   git branch --remote --no-color | tail -n +2 | sed -e 's/^ */R /'
+   git branch --remote --no-color | sed -e '2,$s/^ */R /'
 }
 
 wfmux_new_branch () {
@@ -1018,80 +1004,83 @@ input_2_quit () {
    printf '\n'
 }
 
-wfmux_push () {
-   :;
+opt_wfmux_nremote () {
+   tmux_or_die
+
+   requires git || return
+
+   project_dir=`get_project_dir "$(tmux_cur_session)"`
+
+   test -z "$project_dir"   \
+      && not_wfmux_session   \
+      && return 1
+
+   cd -L "$project_dir"
+
+   is_git_repository || return
+
+   printf 'remote name: '
+   read name
+   test -z "$name" && return
+
+   printf 'url: '
+   read url
+   test -z "$url" && return
+
+   git remote add "$name" "$url"
+   input_2_quit
 }
 
-opt_wfmux_push ()  { wfmux_push; }
+wfmux_push () {
+   tmux_or_die
+
+   requires git || return
+
+   project_dir=`get_project_dir "$(tmux_cur_session)"`
+
+   test -z "$project_dir"   \
+      && not_wfmux_session   \
+      && return 1
+
+   cd -L "$project_dir"
+
+   is_git_repository || return
+}
+
+opt_wfmux_push  () { wfmux_push;         }
 opt_wfmux_fpush () { wfmux_push --force; }
 
-opt_push  () { __push;         }
-opt_fpush () { __push --force; }
+spinner () {
+   i=0
+
+   set -- − \\ \| /
+   while true ; do 
+      sleep 0.2
+      i=$(($i + 1))
+      eval "printf '\b\$$((($i % 4) + 1))'"
+   done
+} 
 
 __push () {
-   { command -v git    || return
-     command -v "$TOK" || return
-   } >/dev/null
+   printf "%s\n" "$remotes" | while read remote ; do
+      my_tok=$(eval "$TOK '${remote%%.*}'")
 
-   project_dir=`__get_project_dir`
-   test -n "$project_dir" && project_name=$(basename "$project_dir")
+      test "$remote" = "gitlab.com" && my_tok="$GITLAB_TOK_NAME:$my_tok"
 
-   if [ -n "$project_name" ] ; then
-      cd "$project_dir"
-      if [ $? -eq 0 ] ; then
-         username=
-         remotes=$(printf "$WFMUX_REMOTE" | eval "$MENU")
-         session_path="$SESSION_DIR/$(tmux_cur_session)"
 
-         if [ -s "$session_path/user" ]
-         then
-            username=$(cat "$session_path/user")
-         else
-            username=$(printf "$WFMUX_USERS" | eval "$MENU")
-            printf "$username" >"$session_path/user"
-         fi
+      local failed=No
+      git push "$force" --set-upstream "$proto://$my_tok@$remote/$username/$project_name.git" "$branch" >/dev/null 2>&1 || failed=Yes
+      kill -KILL $!
 
-         if [ -n "$remotes" ]; then
-            force=${1:---force}
-            proto=https
-            branch=$(git branch | sed -ne 's|^\* \(.\+\)|\1|p')
-            git_config=$(cat .git/config)
+      test x"$failed" = x"Yes" && c="${ESC_RED}Failed" || c="${SUCCESS}Done"
+      printf "\b$c$ESC_UNSET_ANSI\n"
+   done
 
-            printf "%s\n" "$remotes" | while read remote ; do
-               my_tok=$(eval "$TOK '${remote%%.*}'")
-
-               case $remote in
-                  codeberg.org|github.com|github.com) proto=https ;;
-                  *) proto=https ;;
-               esac
-               test "$remote" = "gitlab.com" && my_tok="$GITLAB_TOK_NAME:$my_tok"
-
-               printf "Pushing to $remote/$username  ";
-               {
-                  i=0
-                  set -- − \\ \| /
-                  while true; do 
-                     sleep 0.2
-                     i=$(($i+1))
-                     eval "printf \"\b\$$(($(($i%4))+1))\""
-                  done
-               } &
-
-               local failed=No
-               git push "$force" --set-upstream "$proto://$my_tok@$remote/$username/$project_name.git" "$branch" >/dev/null 2>&1 || failed=Yes
-               kill -KILL $!
-
-               test x"$failed" = x"Yes" && c="${ESC_RED}Failed" || c="${SUCCESS}Done"
-               printf "\b$c$ESC_UNSET_ANSI\n"
-            done
-
-            # To avoid saving tokens!
-            printf "$git_config" > .git/config
-            __input_to_exit
-         fi
-      fi
-   fi
+   # To avoid saving tokens!
+   printf "$git_config" > .git/config
 }
+
+opt_wfmux_shell () { :; }
 
 start_watcher () {
    project_session=$2 one_shot=${1%%(*} cmd=${1#?(*)} watcher_name=${1%%)*}
