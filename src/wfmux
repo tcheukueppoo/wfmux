@@ -183,7 +183,7 @@ END
 }
 
 die () {
-   printf '%s: %s.\n' "$0" "$*" >&2
+   say "$0: $*." >&2
    exit 1
 }
 
@@ -317,8 +317,8 @@ END
             continue
          }
 
-         term_h=$(printf "$new_size\n" | cut -d' ' -f1)
-         term_w=$(printf "$new_size\n" | cut -d' ' -f2)
+         term_h=$(say "$new_size" | cut -d' ' -f1)
+         term_w=$(say "$new_size" | cut -d' ' -f2)
          if test $term_h -lt 32 || test $term_w -lt 97 ; then
             _size=SS
          elif test $term_h -lt 43 || test $term_w -lt 155 ; then
@@ -388,8 +388,8 @@ wfmux_fail () {
 shrink_project_dirs () {
    sdirs=$PROJECT_DIRS
 
-   for n in $(seq `printf '%s\n' "$sdirs" | wc -l`) ; do
-      path=$(printf '%s' "$sdirs" | sed -ne "${n}p")
+   for n in $(seq `say "$sdirs" | wc -l`) ; do
+      path=$(say "$sdirs" | sed -ne "${n}p")
 
       # Check if it's already shrinked
       expr "$path" : / >/dev/null || continue
@@ -398,30 +398,30 @@ shrink_project_dirs () {
       name=${name%%/*}
 
       # Check if $path is the only one.
-      test $(printf '%s' "$sdirs" | grep "^/$name/" | wc -l) -eq 1 && continue
+      test $(say "$sdirs" | grep "^/$name/" | wc -l) -eq 1 && continue
 
       path=${path#/*/}
-      sdirs=$(printf '%s' "$sdirs" | sed -e "s#^/$name/#*/#")
+      sdirs=$(say "$sdirs" | sed -e "s#^/$name/#*/#")
 
       # Shrink more
       OIFS=$IFS IFS=/
       for name in $path ; do
-         test $(printf '%s' "$sdirs" | grep "^\*/$name/" | wc -l) -eq 1 && continue
+         test $(say "$sdirs" | grep "^\*/$name/" | wc -l) -eq 1 && continue
 
-         _sdirs=$(printf '%s' "$sdirs" | sed -e "s#^\*/$name/#*/#")
+         _sdirs=$(say "$sdirs" | sed -e "s#^\*/$name/#*/#")
 
-         a=$(printf '%s' "$_sdirs" | sed -e 's/\*/.../')
-         b=$(printf '%s' "$a"      | sort -u)
+         a=$(say "$_sdirs" | sed -e 's/\*/.../')
+         b=$(say "$a"      | sort -u)
          test ${#a} -ne ${#b} && break
 
          sdirs=$_sdirs
       done
       IFS=$OIFS
 
-      sdirs=$(printf '%s' "$sdirs" | sed -e 's/\*/.../')
+      sdirs=$(say "$sdirs" | sed -e 's/\*/.../')
    done
 
-   printf '%s\n' "$sdirs"
+   say "$sdirs"
 }
 
 get_project_list () {
@@ -436,7 +436,7 @@ get_project_list () {
          test -d "$file" || continue
          test -x "$file" || continue
 
-         sdir=$(printf "$sdirs" | sed -ne "${line}p")
+         sdir=$(say "$sdirs" | sed -ne "${line}p")
          printf "[%d]:%s/%s\n" $line "$sdir" "$file"
       done
 
@@ -451,7 +451,7 @@ new_session () {
 
    line=${project%%]*}
    line=${line#[}
-   project_ddir=$(printf "$PROJECT_DIRS" | sed -ne "${line}p")
+   project_ddir=$(say "$PROJECT_DIRS" | sed -ne "${line}p")
    project_name=$(basename "$project")
    project_dir="$project_ddir/$project_name"
 
@@ -460,7 +460,7 @@ new_session () {
    test -d .git && {
       touch .gitignore
       grep -q -- .wfmux .gitignore || {
-         printf '.wfmux\n' >>.gitignore
+         say '.wfmux' >>.gitignore
          git add .gitignore && git commit -m 'Update .gitignore'
       } 
    }
@@ -476,7 +476,7 @@ new_session () {
       touch .wfmux/name
       session_name=`mktemp -u $project_name-XXXXXX`
       printf "$session_name" >>.wfmux/name
-      printf '.git\n'        >>.wfmux/ignore
+      say '.git' >>.wfmux/ignore
    fi
 
    if [ -z "${TMUX:-}" ] ; then
@@ -506,7 +506,7 @@ opt_wfmux_new () {
       tmux list-sessions | awk '{print "["NR"] "$0}'
    fi
 
-   printf "$WFMUX\n"
+   say "$WFMUX"
    printf '⟩⟩ '
    read input
    tput clear
@@ -519,7 +519,7 @@ opt_wfmux_new () {
       session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
       test -n "$session_name" && exec tmux attach-session -t "$session_name"
    else
-      exec tmux new-session -s "$(printf '%s' "$input")"
+      exec tmux new-session -s "$input"
    fi
 }
 
@@ -535,7 +535,7 @@ set_whxy () {
 
    size_re="\(\($num_re\)%\?\)"
 
-   c=$(printf '%s' "$win_att" | sed -ne "s/^${size_re}x${size_re}+${x_re}+${y_re}$/w=\1 h=\3 x=\5 y=\6/p")
+   c=$(say "$win_att" | sed -ne "s/^${size_re}x${size_re}+${x_re}+${y_re}$/w=\1 h=\3 x=\5 y=\6/p")
 
    test -z "$c" && die "Invalid value assigned to '$name'"
    eval "$c"
@@ -580,7 +580,7 @@ get_project_dir () {
 
       if test -f ".wfmux/name" \
       && test $session_name = "$(cat .wfmux/name)" ; then
-         printf "$project_dir\n"
+         say "$project_dir"
       fi
    done
 
@@ -616,8 +616,8 @@ opt_wfmux_explore () {
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
 
-   test -z "$project_dir"   \
-      && not_wfmux_session   \
+   test -z "$project_dir"  \
+      && die_not_wfmux      \
       || eval "$FILE_MANAGER" "$project_dir"
 }
 
@@ -664,6 +664,10 @@ nohup () {
    { trap '' HUP; eval "$@"; } &
 }
 
+say () {
+   printf '%s\n' "$*"
+}
+
 ## Open a project file
 opt_wfmux_open () {
    tmux_or_die
@@ -672,7 +676,7 @@ opt_wfmux_open () {
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
 
-   test -z "$project_dir" && not_wfmux_session
+   test -z "$project_dir" && die_not_wfmux
 
    cd -L "$project_dir"
    files=$(get_project_files "$project_dir" | eval "$MENU")
@@ -686,7 +690,7 @@ opt_wfmux_open () {
          filetype=`get_filetype "$file"`
          test -z "$filetype" && continue
 
-         data=$(printf '%s' "$PROGRAMS" | grep "^tty=\(true\|false\),$filetype=" | head -n1)
+         data=$(say "$PROGRAMS" | grep "^tty=\(true\|false\),$filetype=" | head -n1)
 
          test -z "$data" && {
             tmux_message "Unable to open '$file'"
@@ -724,15 +728,15 @@ wfmux_run_cmd () {
    panes=$(tmux list-panes -F '#{pane_current_command}:#P:#{pane_active}')
 
    # If possible, run the command in an idle pane.
-   idle_panes=$(printf '%s' "$panes" | grep "^${SHELL##*/}:")
+   idle_panes=$(say "$panes" | grep "^${SHELL##*/}:")
 
    if test -n "$idle_panes" ; then
 
-      target=$(printf '%s' "$idle_panes" | grep ':1$')
+      target=$(say "$idle_panes" | grep ':1$')
       target=${target%:1}
 
       test -z "$target" && {
-         target=$(printf '%s' "$idle_panes" | sort -t: -k1,1n | head -n1)
+         target=$(say "$idle_panes" | sort -t: -k1,1n | head -n1)
          target=${target%:0}
       }
 
@@ -741,7 +745,7 @@ wfmux_run_cmd () {
 
    # Spawn off a new pane in the current window if there's only one pane
    # and that pane it's busy.
-   elif test $(printf '%s' "$panes" | wc -l) -eq 0 ; then
+   elif test $(say "$panes" | wc -l) -eq 0 ; then
 
       tmux split-window -h "$cmd"
 
@@ -757,17 +761,19 @@ opt_wfmux_shell () {
    tmux_or_die
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && not_wfmux_session
+   test -z "$project_dir" && die_not_wfmux
 
    cd -L "$project_dir"
    exec ${SHELL:-/bin/sh}
 }
 
 is_git_repository () {
-   git rev-parse --show-toplevel >/dev/null 2>&1 || wfmux_fail "This project isn't a git repository"
+   git rev-parse --show-toplevel >/dev/null 2>&1 || {
+      wfmux_fail "This project isn't a git repository"
+   }
 }
 
-not_wfmux_session () {
+die_not_wfmux () {
    wfmux_fail 'This is not a wfmux tmux session'
 }
 
@@ -787,8 +793,7 @@ opt_wfmux_log () {
    requires git
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
-
-   test -z "$project_dir" && not_wfmux_session
+   test -z "$project_dir" && die_not_wfmux
 
    cd -L "$project_dir"
 
@@ -806,8 +811,7 @@ wfmux_commit () {
    requires git
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
-
-   test -z "$project_dir" && not_wfmux_session
+   test -z "$project_dir" && die_not_wfmux
 
    cd -L "$project_dir"
 
@@ -822,7 +826,7 @@ wfmux_commit () {
       && test $# -eq 0  \
       && wfmux_fail 'Nothing to commit, working tree clean'
 
-   gstatus=$(printf '%s' "$gstatus" | eval "$MENU")
+   gstatus=$(say "$gstatus" | eval "$MENU")
 
    test -z "$gstatus"  \
       && test $# -eq 0  \
@@ -881,7 +885,7 @@ wfmux_new_branch () {
 
    git show-ref --verify --quiet refs/heads/$lbranch && {
 
-      printf '%s: Local branch name already exists\n' "$branch"
+      say "$branch: Local branch name already exists"
       printf 'New name (y/n)? '
       read input
       test "$input" != y && return
@@ -903,15 +907,16 @@ wfmux_checkout () {
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
 
-   test -z "$project_dir" && not_wfmux_session
+   test -z "$project_dir" && die_not_wfmux
 
    cd -L "$project_dir"
 
    is_git_repository || return
 
    test "${1:-}" = '--clean-worktree' && {
-      test -z "$(git_status)" \
-         || wfmux_fail 'Still have local changes to be commited'
+      test -z "$(git_status)" || {
+         wfmux_fail 'Still have local changes to be commited'
+      }
    }
 
    branch=`git_branches | eval "$MENU"`
@@ -947,7 +952,7 @@ opt_wfmux_cbranch () {
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
 
-   test -z "$project_dir" && not_wfmux_session
+   test -z "$project_dir" && die_not_wfmux
 
    cd -L "$project_dir"
 
@@ -968,8 +973,7 @@ opt_wfmux_nremote () {
    requires git
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
-
-   test -z "$project_dir" && not_wfmux_session
+   test -z "$project_dir" && die_not_wfmux
 
    cd -L "$project_dir"
 
@@ -992,10 +996,7 @@ wfmux_push () {
    requires git
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
-
-   test -z "$project_dir"   \
-      && not_wfmux_session   \
-      && return 1
+   test -z "$project_dir" && die_not_wfmux
 
    cd -L "$project_dir"
 
@@ -1022,8 +1023,7 @@ opt_wfmux_awatch () {
    tmux_or_die
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
-
-   test -z "$project_dir" && not_wfmux_session
+   test -z "$project_dir" && die_not_wfmux
 
    cd -L "$project_dir"
 
@@ -1031,15 +1031,16 @@ opt_wfmux_awatch () {
    read name
    test -z "$name" && return
 
-   if expr "$name" : '[a-zA-Z][-a-zA-Z]*$' >/dev/null ; then
+   expr "$name" : '[a-zA-Z][-0-9a-zA-Z]*$' >/dev/null || {
       wfmux_fail "'$name' isn't a valid watcher name"
-   fi
+   }
 
    watch_conf="$project_dir/.wfmux/watch"
 
-   test -s "$watch_conf"                                  \
-      && grep -q "^w,[-+],[01],\[$name\]:" "$watch_conf"   \
-      && wfmux_fail "A watcher named '$name' already exists"
+   if test -s "$watch_conf"  \
+   && grep -q "^w,[-+],[01],\[$name\]:" "$watch_conf" ; then
+      wfmux_fail "A watcher named '$name' already exists"
+   fi
 
    printf 'one shot? (y/n) '
    read wtype
@@ -1050,10 +1051,11 @@ opt_wfmux_awatch () {
    test -z "$cmd" && return
 
    files=$(get_project_files "$project_dir" | eval "$MENU")
-   printf '%s' "${NL%?}w+,$wtype,[$name]: $cmd${NL%?}${files}${NL%?}end" >>"$watch_conf"
+   say "${NL%?}w+,$wtype,[$name]: $cmd${NL%?}${files}${NL%?}end" >>"$watch_conf"
 }
 
-get_watchers_names () {
+wfmux_select_watcher () {
+   names=
    watch_conf=$1
 
    test -f "$watch_conf"       \
@@ -1061,63 +1063,117 @@ get_watchers_names () {
       && test -s "$watch_conf"   \
       || return
 
-   sed -ne 's/^w[-+],[01],\[\([^]]\+\)\]:.\+$/\1/p' "$watch_conf"
+   names=$(sed -ne 's/^w[-+],[01],\[\([^]]\+\)\]:.\+$/\1/p' "$watch_conf")
+
+   if test -z "$names" ; then
+      wfmux_fail 'There are no configured watchers'
+   fi
+
+   say "$(say "$names" | eval "$MENU")"
 }
 
-opt_wfmux_ewatch () {
+valid_watch_conf () {
+   name=$1 conf=$2
+
+   ntags=$(
+      say "$conf"                                      \
+         | sed -ne "1s/^w[-+],[01],\[$name\]:.\+$/1/p"  \
+                -e '$s/^end$/2/p'                        \
+         | wc -l
+   )
+
+   test $ntags -ge 2 || wfmux_fail 'Invalid watcher configuration'
+}
+
+opt_wfmux_mwatch () {
    tmux_or_die
 
    edit=${EDITOR:-vim} requires "$edit"
 
    project_dir=`get_project_dir "$(tmux_cur_session)"`
-
-   test -z "$project_dir" && not_wfmux_session
+   test -z "$project_dir" && die_not_wfmux
 
    cd -L "$project_dir"
 
    watch_conf="$project_dir/.wfmux/watch"
-   wnames=`get_watchers_names "$watch_conf"`
 
-   test -z "$wnames" && wfmux_fail 'There are no configured watchers'
-
-   wname=`printf '%s' "$wnames" | eval "$MENU"`
-   test -z "$wname" && return
+   name=$(wfmux_select_watcher "$watch_conf")
+   test -z "$name" && return
 
    e='
-      /^w[-+],[01],\[[^]]\+\]:/ {
-         p
-         n
-         b loop
-      }
+      /^w[-+],[01],\[[^]]\+\]:/ { p; n; b loop; }
       b
       :loop
-      /^[ \t]*$/ {
-         n
-         b loop
-      }
+      /^[ \t]*$/ { n; b loop; }
       /end/ { p; q; }
       p
       n
       b loop
    '
 
-   conf=`sed -e "$e" "$watch_conf"`
+   conf=$(sed -e "$e" "$watch_conf")
+   if test -z "$conf" ; then
+      wfmux_fail "There is no watcher named '$name'"
+   fi
 
-   test -z "$conf" \
-      && wfmux_fail "There is no watcher named '$wname'"
+   check_watch_conf "$name" "$conf"
 
-   tmpfile=`mktemp /tmp/wfmux.XXXXX`
-   printf '%s' "$conf" >>$tmpfile
-   printf '\n# Please edit the watcher configuration. Lines starting' >>$tmpfile
-   printf '\n# with "#" will be ignored.' >>$tmpfile
+   tmpfile=$(mktemp /tmp/wfmux.XXXXX)
+
+   say "${NL%?}$conf" >>$tmpfile
+   say '# Please edit the watcher configuration. Empty lines and' >>$tmpfile
+   say '# lines starting with "#" will be ignored.' >>$tmpfile
 
    eval "$edit" $tmpfile
-   conf=$(grep -v '^\([ \t]*\(#.*\)?\)$' $tmpfile)
+   conf=$(grep -xv '[ \t]*\(#.*\)\?' $tmpfile)
 
-   if test $(printf '%s' "$conf" | sed -e "$e" | wc -l) -lt 2 ; then
-      tmux_message ""
-   fi
+   wfmux_del_watcher "$name"
+   say "${NL%?}$conf" >>"$watch_conf"
+
+   check_watch_conf "$name" "$watch_conf"
 }
+
+del_watcher () {
+   :;
+}
+
+opt_wfmux_rwatch () {
+   tmux_or_die
+
+   project_dir=`get_project_dir "$(tmux_cur_session)"`
+   test -z "$project_dir" && die_not_wfmux
+
+   cd -L "$project_dir"
+
+   watch_conf="$project_dir/.wfmux/watch"
+
+   name=$(wfmux_select_watcher "$watch_conf")
+   test -z "$name" && return
+
+   del_watcher "$name" "$watch_conf"
+}
+
+watch_state_edit () {
+   tmux_or_die
+
+   state=${1:-e}
+   test "$state" = '-e' && state=+ || state=-
+
+   project_dir=`get_project_dir "$(tmux_cur_session)"`
+   test -z "$project_dir" && die_not_wfmux
+
+   cd -L "$project_dir"
+
+   watch_conf="$project_dir/.wfmux/watch"
+
+   name=$(wfmux_select_watcher "$watch_conf")
+   test -z "$name" && return
+
+   sed -i "s/^w[-+]\(,[01],\[$name\]:\)/w$state\1/" "$watch_conf"
+}
+
+opt_wfmux_dwatch () { watcher_state_edit -d;  }
+opt_wfmux_ewatch () { watcher_state_edit -e;  }
 
 start_watchers () {
    project_dir=$1
@@ -1172,128 +1228,6 @@ start_watcher () {
    } >"$fifo" 2>&1 &
 
    printf "$!" >"$project_session/$watcher_name.pid"
-}
-
-
-
-# remove watchers from the watcher list
-opt_rwatcher () {
-   cur_session=`tmux_cur_session`
-   [ -z "$cur_session" ] && return
-
-   project_session="$SESSION_DIR/$cur_session"
-   watch_config="$project_session/watch"
-
-   test -r "$watch_config" -a -s "$watch_config" || return
-
-   watcher_names=$(cat "$watch_config" | sed -ne 's/^s[-+]\[\(\w*\)\]:.*$/\1/p')
-   if [ -n "$watcher_names" ]; then
-      watcher_name=$(printf "$watcher_names" | eval "$MENU")
-
-      if [ -n "$watcher_name" ]; then
-         printf "$ESC_UNDERLINE"
-         cat "$watch_config" | grep -q "^e\[$watcher_name\]"
-
-         if [ $? -eq 0 ]; then
-            sed -i "/^s..\[$watcher_name\]:/,/^e\[$watcher_name\]/d" "$watch_config"
-            if [ $? -eq 0 ]; then
-               if [ -r "$project_session/fifos/$watcher_name.pid" ] ; then
-                  pid=$(cat "$project_session/fifos/$watcher_name.pid")
-                  kill -KILL "$pid" >/dev/null 2>&1
-               fi
-               printf "$SUCCESS"
-               printf "Watcher '$watcher_name' successfully deleted\n"
-            else
-               printf "$ESC_RED"
-               printf "Could not delete watcher\n"
-            fi
-         else
-            printf "$ESC_RED"
-            printf "could not find scope of definition of '$watcher_name'\n"
-         fi
-         printf "${ESC_UNSET_ANSI}${ESC_UNSET_ANSI}"
-      fi
-   else
-      printf "you do not have any watcher\n"
-   fi
-
-   __input_to_exit
-}
-
-__ed_watcher () {
-   watch_config="$1/watch"
-
-   if [ -r "$watch_config" -a -s "$watch_config" ] ; then
-      watcher_names=$(cat "$watch_config" | sed -ne 's/^s[-+][01]\[\(\w*\)\]:.*$/\1/p')
-
-      if [ -n "$watcher_names" ] ; then
-         watcher_name=$(printf "$watcher_names" | eval "$MENU")
-         if [ -n "$watcher_name" ] ; then
-            sed -ie "s/^s.\(.\[$watcher_name\]\)/^s$2\1/" "$watch_config"
-         fi
-      else
-         printf "No watcher were found\n"
-      fi
-   fi
-}
-
-# Enable watchers, should be runned within an existing wfmux tmux session.
-# This operation sets on watchers to be runned upon session startup.
-opt_ewatcher () {
-   cur_session=`tmux_cur_session`
-   project_session="$SESSION_DIR/$cur_session"
-   watch_file="$project_session/watch"
-
-   [ -z "$cur_session" ] && return
-
-   printf "$ESC_UNDERLINE"
-
-   watcher_name=$(__ed_watcher "$watch_file" +)
-   if [ $? -eq 0 ] ; then
-      pid_file="$project_session/fifos/$watcher_name.pid"
-
-      if ! test -s "$pid_file" ||
-         ! ps a | grep -q "^[\t ]\+$(cat "$pid_file")" ; then
-         pairs=$(cat "$watch_file" | sed -ne 's/^s+\(.\)\[\(.*\)\]: *\(.\+\) *$/\1(\2)\3/p')
-         __start_watcher "$pairs" "$project_session"
-      fi
-
-      printf "$SUCCESS"
-      printf "Watcher '$watcher_name' enabled.\n"
-      printf "${ESC_UNSET_ANSI}${ESC_UNSET_ANSI}"
-   else
-      printf "$ESC_RED"
-      printf "Could not enable watcher '$watcher_name'\n"
-   fi
-   printf "${ESC_UNSET_ANSI}${ESC_UNSET_ANSI}"
-
-   __input_to_exit
-}
-
-# Disable watchers, should be runned within an existing wfmux tmux session.
-# This operation sets off watchers so that they cannot run when a new wfmux
-# tmux session is initiated either via `opt_open' or `opt_nsession'
-opt_rwatchers () {
-   cur_session=`tmux_cur_session`
-   project_session="$SESSION_DIR/$cur_session"
-   watch_file="$project_session/watch"
-
-   [ -z "$cur_session" ] && return
-
-   printf "$ESC_UNDERLINE"
-
-   watcher_name=$(__ed_watcher "$watch_file" -)
-   if [ $? -eq 0 ] ; then
-      printf "$SUCCESS"
-      printf "Watcher '$watcher_name' disabled.\n"
-      printf "${ESC_UNSET_ANSI}${ESC_UNSET_ANSI}"
-   else
-      printf "$ESC_RED"
-      printf "Could not disable watcher '$watcher_name'\n"
-   fi
-   printf "${ESC_UNSET_ANSI}${ESC_UNSET_ANSI}"
-
-   __input_to_exit
 }
 
 # Fancy view of all watchers belonging to the project
