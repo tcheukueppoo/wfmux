@@ -1,4 +1,4 @@
-s+:[test] ./Build && ./Build test 
+w+,0,[test]: ./Build && ./Build test
 
 /home/kueppo/projects/Term-Matrix/xt/boilerplate.t
 /home/kueppo/projects/Term-Matrix/t/00-load.t
@@ -6,15 +6,8 @@ s+:[test] ./Build && ./Build test
 /home/kueppo/projects/Term-Matrix/t/pod-coverage.t
 /home/kueppo/projects/Term-Matrix/t/manifest.t
 
-e:
+end
 
-s-
-e
+w-,1,[make]: make && sudo make install
+end
 
-s+
-
-e
-
-s-
-
-e
