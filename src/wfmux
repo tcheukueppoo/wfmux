@@ -1190,38 +1190,65 @@ watch_state_edit () {
 opt_wfmux_dwatch () { watcher_state_edit -d;  }
 opt_wfmux_ewatch () { watcher_state_edit -e;  }
 
+println () {
+   for i in "$@" ; do
+      say "$i"
+   done
+}
+
 start_watchers () {
    project_dir=$1
    watch_conf="$project_dir/.wfmux/watch"
 
    test -s "$watch_conf" || return
 
-   name= wtype= cmd= files=
+   name=
+   wtype=
+   cmd=
 
-   n=0 state=watcher
+   n=0
+   dir=false
+   efiles=
+   state=watcher
 
-   IFS=${NL%?}
-   for line in $(cat "$watch_conf") ; do
+   while read line ; do
       n=$(($n + 1))
 
       if expr "$line" : '[\t ]*$' ; then
          continue
-      elif expr "$line" : 'w+,[01],\[[^:]]\+\]:.\+$' ; then
-         name=${line##*,[} name=${name%%]*}
-         wtype=${line#*,}  wtype=${wtype%%,*}
+      elif expr "$line" : 'w+,[01],\[[^ \t:\]]\+\]:.\+$' ; then
+         name=${line##*,[}
+         name=${name%%]*}
+         wtype=${line#*,}
+         wtype=${wtype%%,*}
          cmd=${line##*:}
+         efiles="$project_dir/.wfmux/efiles/$name.efiles"
          state=files
-      elif test x$state = xfiles \
-      &&   expr "$line" : 'end$' ; then
-         start_watcher $wtype "$cmd" "$files"
+      elif expr "$line" : 'end$' \
+      &&   test x$state = xfiles ; then
+         say "$project_dir" >>"$efiles"
+         nohup start_watcher "$name"   \
+                              $wtype    \
+                             "$cmd"      \
+                              $dir        \
+                             "$efiles"
          state=watcher
       elif test x$state = xfiles ; then
-         file=$(say "$line" | sed -e 's/^[\t ]*//;s/[\t ]*$//')
-         files="$files${NL%?}$file"
-      fi
-   done
+         file=$(say "$file" | sed -e 's/^[ \t]*//;s/[ \t]*$//;s/ /\\ /g')
 
-   if test x$state = xend ; then
+         IFS=${NL%?}
+         for efile in $(eval println "$file") ; do
+            if ! test -e "$efile" ; then
+               wfmux_fail "watcher($name): '$efile' does not exist"
+            elif test -d "$efile" ; then
+               dir=true
+            fi
+            say "$efile"
+         done >$efiles
+      fi
+   done <"$watch_conf" >/dev/null
+
+   if test x$state = xfiles ; then
       wfmux_fail "('$watch_config'): Failed to parse config at line $n."
    fi
 }
@@ -1229,17 +1256,42 @@ start_watchers () {
 start_watcher () {
    name=$1
    wtype=$2
-   cmd=$3
+   cmd='exec tmux set-buffer -b '$name' "$('"$3"' 2>&1)"'
+   dir=$4
+   efiles=$5
 
-   if test $wtype -eq 1 ; then
-   elif test $wtype -eq 0 ; then
-   else
+   args='-nps'
+   test x$wtype = x1 && args="${args}r"
+
+   if test x"$dir" = xfalse ; then
+      printf $$ >>"$pidfile"
+      exec entr $args "$cmd" <"$efiles"
    fi
-   
-   case $WATCHER in
-      entr) entr -nr "$cmd" ;;
-      *) : ;;
-   esac
+
+   args="${args}d"
+   while sleep 0.5 ; do
+      test -e "$efiles"       \
+         && test -s "$efiles"  \
+         || {
+         tmux set-buffer -b $name "Couldn't read '$efiles', please restart the watcher!"
+         break
+      }
+      exec entr $args "$cmd" <"$efiles" &
+      printf $! >>"$pidfile"
+      waitpid $!
+   done
+}
+
+opt_wfmux_wtop () {
+   tmux_or_die
+
+   project_dir=`get_project_dir "$(tmux_cur_session)"`
+   test -z "$project_dir" && die_not_wfmux
+
+   cd -L "$project_dir"
+
+   watch_conf="$project_dir/.wfmux/watch"
+
 }
 
 #             --[ project_name ]--
@@ -1249,10 +1301,7 @@ start_watcher () {
 #
 #    WATCHER_NAME   PID    o/m  COMMAND
 #    watcher_name_1 pid_1  o    command_1
-#    watcher_name_2 pid_2  m    command_2
 opt_view () {
-   i= j= project_name=`__get_project_dir` project_session=`tmux_cur_session`
-
    test -z "$project_name" && return
    project_name=`basename "$project_name"`
 
