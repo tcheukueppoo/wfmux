@@ -104,9 +104,10 @@ fcheckout
 cbranch
 view
 awatch
-dwatch
-ewatch
 rwatch
+mwatch
+ewatch
+dwatch
 ops
 END
 )
@@ -127,7 +128,7 @@ TBIND_SWITCH='w'
 
 MENU='fzf --multi --margin=25%'
 
-PROJECT_DIRS=$(cat <<END
+PROJ_DIRS=$(cat <<END
 $HOME/projects
 $HOME/oprojects
 END
@@ -240,38 +241,35 @@ check_conf_variables () {
    }
 
    for var in USE_XDG_OPEN WATCHER MENU FILE_MANAGER WIN_ATT_OPT \
-              PROJECT_DIRS TBIND_OPS TBIND_SELECT TBIND_EXPLORE ; do
+              PROJ_DIRS TBIND_OPS TBIND_SELECT TBIND_EXPLORE ; do
 
       eval 'is_set=${'$var':+true}'
       test -z "$is_set" && die_conf "'$var' isn't defined"
    done
 
    ## Check if we've got sane values
-   {
-      expr "$COLOR"        : '[0-9]$'           || v_error COLOR
-      expr "$USE_XDG_OPEN" : '\(true\|false\)$' || v_error USE_XDG_OPEN
+   expr "$COLOR"        : '[0-9]$'           >/dev/null || v_error COLOR
+   expr "$USE_XDG_OPEN" : '\(true\|false\)$' >/dev/null || v_error USE_XDG_OPEN
 
-      for cmd in FILE_MANAGER WATCHER MENU ; do
-         eval 'command' '-v' '${'$cmd'}' || die_conf "Command '$cmd' not found"
-      done
-
-   } >/dev/null
+   for cmd in FILE_MANAGER WATCHER MENU ; do
+      eval 'command' '-v' '${'$cmd'}' || die_conf "Command '$cmd' not found"
+   done >/dev/null
 
    OIFS=$IFS IFS=${NL%?}
-   project_dirs=
+   proj_dirs=
 
-   for path in $PROJECT_DIRS ; do
+   for path in $PROJ_DIRS ; do
       rpath=$(realpath -e "$path" 2>/dev/null)
 
       test $? -eq 0    || die_conf "'$path' does not exist"
       test -d "$rpath" || die_conf "'$rpath' is not a directory"
       test -r "$rpath" || die_conf "cannot list contents of '$rpath'"
 
-      project_dirs="$project_dirs${project_dirs:+${NL%?}}$rpath"
+      proj_dirs="$proj_dirs${proj_dirs:+${NL%?}}$rpath"
    done
 
    IFS=$OIFS
-   PROJECT_DIRS=$(printf '%s' "$project_dirs")
+   PROJ_DIRS=$(printf '%s' "$proj_dirs")
 }
 
 display_dashboard () {
@@ -385,8 +383,8 @@ wfmux_fail () {
    exit 1
 }
 
-shrink_project_dirs () {
-   sdirs=$PROJECT_DIRS
+shrink_proj_dirs () {
+   sdirs=$PROJ_DIRS
 
    for n in $(seq `say "$sdirs" | wc -l`) ; do
       path=$(say "$sdirs" | sed -ne "${n}p")
@@ -424,12 +422,12 @@ shrink_project_dirs () {
    say "$sdirs"
 }
 
-get_project_list () {
+get_proj_list () {
    line=1
-   sdirs=`shrink_project_dirs`
+   sdirs=`shrink_proj_dirs`
 
    IFS=${NL%?}
-   for dir in $PROJECT_DIRS ; do
+   for dir in $PROJ_DIRS ; do
       cd "$dir"
 
       for file in * ; do
@@ -445,17 +443,17 @@ get_project_list () {
 }
 
 new_session () {
-   project=$(get_project_list | eval "$MENU")
+   project=$(get_proj_list | eval "$MENU")
 
    test -z "$project" && return
 
    line=${project%%]*}
    line=${line#[}
-   project_ddir=$(say "$PROJECT_DIRS" | sed -ne "${line}p")
-   project_name=$(basename "$project")
-   project_dir="$project_ddir/$project_name"
+   proj_ddir=$(say "$PROJ_DIRS" | sed -ne "${line}p")
+   proj_name=$(basename "$project")
+   proj_dir="$proj_ddir/$proj_name"
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
    test -d .git && {
       touch .gitignore
@@ -468,28 +466,30 @@ new_session () {
    if test -d .wfmux      \
    && test -x .wfmux       \
    && test -s .wfmux/name   \
-   && expr "$(cat .wfmux/name)" : "$project_name-.\\{6\\}$" >/dev/null ; then
-      session_name=`cat .wfmux/name`
+   && expr "$(cat .wfmux/name)" : "$proj_name-.\\{6\\}$" >/dev/null ; then
+      session=`cat .wfmux/name`
    else
       rm -rf .wfmux
       mkdir .wfmux
       touch .wfmux/name
-      session_name=`mktemp -u $project_name-XXXXXX | sed -e 's/\./_/g'`
-      printf "$session_name" >>.wfmux/name
+
+      proj_name=$(say "$proj_name" | sed -e 'y/-./__/')
+      session=`mktemp -u $proj_name-XXXXXX`
+      printf "$session" >>.wfmux/name
       say '.git' >>.wfmux/ignore
    fi
 
    if [ -z "${TMUX:-}" ] ; then
-      tmux has-session -t "$session_name" 2>/dev/null || {
-         start_watchers "$project_dir"
+      tmux has-session -t "$session" 2>/dev/null || {
+         start_watchers "$proj_dir"
          display_dashboard
-         tmux new-session -s "$session_name" -d
+         tmux new-session -s "$session" -d
       }
-      exec tmux attach-session -t "$session_name"
+      exec tmux attach-session -t "$session"
    else
       pty=`tmux_cur_pty`
-      tmux has-session -t "$session_name" 2>/dev/null || tmux new-session -s "$session_name" -d
-      exec tmux switch-client -c "$pty" -t "$session_name"
+      tmux has-session -t "$session" 2>/dev/null || tmux new-session -s "$session" -d
+      exec tmux switch-client -c "$pty" -t "$session"
    fi
 }
 
@@ -499,7 +499,7 @@ opt_wfmux_nsession () { new_session; }
 # Select a project and open a tmux session
 opt_wfmux_new () {
    input=
-   session_name=
+   session=
 
    if tmux list-sessions >/dev/null 2>&1 ; then
       printf "Choose an existing session to attach\n\n"
@@ -516,8 +516,8 @@ opt_wfmux_new () {
    if test x"$input" = xf ; then
       new_session
    elif expr "$input" : '\([0-9]\|[1-9][0-9]\+\)$' >/dev/null ; then
-      session_name=$(tmux list-sessions -F '#S' | sed -n "${input}p")
-      test -n "$session_name" && exec tmux attach-session -t "$session_name"
+      session=$(tmux list-sessions -F '#S' | sed -n "${input}p")
+      test -n "$session" && exec tmux attach-session -t "$session"
    else
       exec tmux new-session -s "$input"
    fi
@@ -562,29 +562,34 @@ END
 opt_wfmux_dump () { dump_conf; }
 opt_wfmux_tmux () { dump_conf >>"$TMUX_CONF"; }
 
-get_project_dir () {
-   test -z "$1" && return
-
-   session_name=$1
-   project_name=$(printf "$session_name" | sed -ne 's/^\([^-]\+\)-.\{6\}$/\1/p')
-   test -z "$project_name" && return
-
-   OIFS=$IFS IFS=${NL%?}
-   for dir in $PROJECT_DIRS ; do
-      project_dir="$dir/$project_name"
-
-      test -d "$project_dir"       \
-         && test -x "$project_dir"  \
-         && cd -L "$project_dir"     \
-         || continue
-
-      if test -f ".wfmux/name" \
-      && test x$session_name = x"$(cat .wfmux/name)" ; then
-         say "$project_dir"
-      fi
+println () {
+   for i in "$@" ; do
+      say "$i"
    done
+}
 
-   IFS=$OIFS
+get_proj_dir () {
+   session=$1
+   proj_name=
+
+   proj_name=$(say "$session" | sed -ne 's/^\([^-]\+\)-.\{6\}$/\1/p')
+   test -z "$proj_name" && return
+
+   IFS=${NL%?}
+   for dir in $PROJ_DIRS ; do
+      proj_dir=$(say "$dir/$proj_name" | tr '_' '?' | sed -e 's/\([^\\]\) /\1\\ /g')
+
+      for proj_dir in $(eval println "$proj_dir") ; do
+         test -d "$proj_dir"       \
+            && test -x "$proj_dir"  \
+            && cd -L "$proj_dir"     \
+            || continue
+
+         test -f '.wfmux/name'                        \
+            && test x$session = x"$(cat .wfmux/name)"  \
+            && say "$proj_dir"
+      done
+   done
 }
 
 tmux_or_die () {
@@ -598,7 +603,7 @@ opt_wfmux_switch () {
 
    IFS=${NL%?}
    for session in `tmux list-sessions -F '#S'` ; do
-      test -z "$(get_project_dir "$session")" && continue
+      test -z "$(get_proj_dir "$session")" && continue
       wfmux_sessions="${wfmux_sessions}${session}\n"
    done
 
@@ -614,16 +619,16 @@ opt_wfmux_switch () {
 opt_wfmux_explore () {
    tmux_or_die
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
 
-   test -z "$project_dir"  \
+   test -z "$proj_dir"     \
       && die_not_wfmux      \
-      || eval "$FILE_MANAGER" "$project_dir"
+      || eval "$FILE_MANAGER" "$proj_dir"
 }
 
-get_project_files () {
+get_proj_files () {
    ignore=
-   project_dir=$1
+   proj_dir=$1
 
    if test -s .wfmux/ignore ; then
       IFS=${NL%?}
@@ -674,12 +679,11 @@ opt_wfmux_open () {
 
    test x"$USE_XDG_OPEN" = xtrue && requires xdg-open
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   test -z "$project_dir" && die_not_wfmux
-
-   cd -L "$project_dir"
-   files=$(get_project_files "$project_dir" | eval "$MENU")
+   cd -L "$proj_dir"
+   files=$(get_proj_files "$proj_dir" | eval "$MENU")
 
    IFS=${NL%?}
    for file in $files ; do
@@ -761,10 +765,10 @@ wfmux_run_cmd () {
 opt_wfmux_shell () {
    tmux_or_die
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
    exec ${SHELL:-/bin/sh}
 }
 
@@ -793,10 +797,10 @@ opt_wfmux_log () {
    tmux_or_die
    requires git
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
    is_git_repository || return
 
@@ -811,10 +815,10 @@ wfmux_commit () {
    tmux_or_die
    requires git
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
    is_git_repository || return
 
@@ -906,10 +910,10 @@ wfmux_checkout () {
    tmux_or_die
    requires git
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
    is_git_repository || return
 
@@ -950,11 +954,11 @@ opt_wfmux_cbranch () {
    tmux_or_die
    requires git
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
 
-   test -z "$project_dir" && die_not_wfmux
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
    is_git_repository || return
 
@@ -972,10 +976,10 @@ opt_wfmux_nremote () {
    tmux_or_die
    requires git
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
    is_git_repository || return
 
@@ -995,10 +999,10 @@ wfmux_push () {
    tmux_or_die
    requires git
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
    is_git_repository || return
 
@@ -1019,13 +1023,22 @@ spin () {
 opt_wfmux_push  () { wfmux_push;         }
 opt_wfmux_fpush () { wfmux_push --force; }
 
+files_to_watch () {
+   proj_dir=$1
+
+   cd -L "$proj_dir"
+   find . -type d
+
+   get_proj_files "$proj_dir"
+}
+
 opt_wfmux_awatch () {
    tmux_or_die
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
    printf 'watcher name: '
    read name
@@ -1035,10 +1048,10 @@ opt_wfmux_awatch () {
       wfmux_fail "'$name' isn't a valid watcher name"
    }
 
-   watch_conf="$project_dir/.wfmux/watch"
+   watch_conf="$proj_dir/.wfmux/watch"
 
    if test -s "$watch_conf"  \
-   && grep -q "^w,[-+],[01],\[$name\]:" "$watch_conf" ; then
+   && grep -q "^w[-+],[01],\[$name\]:" "$watch_conf" ; then
       wfmux_fail "A watcher named '$name' already exists"
    fi
 
@@ -1050,9 +1063,12 @@ opt_wfmux_awatch () {
    read cmd
    test -z "$cmd" && return
 
-   files=$(get_project_files "$project_dir" | eval "$MENU")
+   files=$(files_to_watch "$proj_dir" | eval "$MENU")
 
-   say "${NL%?}w+,$wtype,[$name]: $cmd${NL%?}${files}${NL%?}end" >>"$watch_conf"
+   test -s "$watch_conf" && printf "${NL%?}"              >>"$watch_conf"
+   say "w+,$wtype,[$name]: $cmd${NL%?}${files}${NL%?}end" >>"$watch_conf"
+
+   tmux_message "Added watcher named '$name'"
 }
 
 select_watcher () {
@@ -1073,36 +1089,38 @@ select_watcher () {
    say "$(say "$names" | eval "$MENU")"
 }
 
-validate_watch_conf () {
-   name=$1 conf=$2
+validate_conf () {
+   name=$1
+   conf=$2
 
-   ntags=$(
+   c=$(
       say "$conf"                                      \
          | sed -ne "1s/^w[-+],[01],\[$name\]:.\+$/1/p"  \
                 -e '$s/^end$/2/p'                        \
          | wc -l
    )
 
-   test $ntags -ge 2 || wfmux_fail 'Invalid watcher config'
+   test $c -ge 2 || wfmux_fail 'Invalid watcher config'
 }
 
 opt_wfmux_mwatch () {
    tmux_or_die
 
-   edit=${EDITOR:-vim} requires "$edit"
+   edit=${EDITOR:-vim}
+   requires "$edit"
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
-   watch_conf="$project_dir/.wfmux/watch"
+   watch_conf="$proj_dir/.wfmux/watch"
 
    name=$(select_watcher "$watch_conf")
    test -z "$name" && return
 
-   e='
-      /^w[-+],[01],\[[^]]\+\]:/ {
+   e="
+      /^w[-+],[01],\[$name\]:/ {
          p
          n
          b loop
@@ -1114,14 +1132,14 @@ opt_wfmux_mwatch () {
          p
          n
          b loop
-   '
+   "
 
-   conf=$(sed -e "$e" "$watch_conf")
+   conf=$(sed -ne "$e" "$watch_conf")
    if test -z "$conf" ; then
       wfmux_fail "There is no watcher named '$name'"
    fi
 
-   validate_watch_conf "$name" "$conf"
+   validate_conf $name "$conf"
 
    tmpfile=$(mktemp /tmp/wfmux.XXXXX)
    say "$conf" >>$tmpfile
@@ -1131,36 +1149,33 @@ opt_wfmux_mwatch () {
    eval "$edit" $tmpfile
    conf=$(grep -xv '[ \t]*\(#.*\)\?' $tmpfile)
 
-   del_watcher "$name" "$watch_conf"
-   say "${NL%?}$conf" >>"$watch_conf"
+   validate_conf $name "$conf"
 
-   validate_watch_conf "$name" "$watch_conf"
+   del_watcher $name "$watch_conf"
+   #printf "${NL%?}%s" "$conf" >>"$watch_conf"
 }
 
 del_watcher () {
+   set -x
    name=$1
    watch_conf=$2
-   e="
-      /^w[-+],[01],\[$name\]:/ { d; b del }
-      b
-      :del
-         /^end$/ { d; q }
-         d
-         b del
-   "
 
-   sed -i "$e" "$watch_conf"
+
+   sed -i "/^w[-+],[01],\[$name\]:/,/^end$/d" "$watch_conf"
+   cat "$watch_conf"
+   read x
+   set +x
 }
 
 opt_wfmux_rwatch () {
    tmux_or_die
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
-   watch_conf="$project_dir/.wfmux/watch"
+   watch_conf="$proj_dir/.wfmux/watch"
 
    name=$(select_watcher "$watch_conf")
    test -z "$name" && return
@@ -1174,12 +1189,12 @@ watch_state_edit () {
    state=${1:-e}
    test x"$state" = x'-e' && state=+ || state=-
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
-   watch_conf="$project_dir/.wfmux/watch"
+   watch_conf="$proj_dir/.wfmux/watch"
 
    name=$(select_watcher "$watch_conf")
    test -z "$name" && return
@@ -1190,15 +1205,9 @@ watch_state_edit () {
 opt_wfmux_dwatch () { watcher_state_edit -d;  }
 opt_wfmux_ewatch () { watcher_state_edit -e;  }
 
-println () {
-   for i in "$@" ; do
-      say "$i"
-   done
-}
-
 start_watchers () {
-   project_dir=$1
-   watch_conf="$project_dir/.wfmux/watch"
+   proj_dir=$1
+   watch_conf="$proj_dir/.wfmux/watch"
 
    test -s "$watch_conf" || return
 
@@ -1222,11 +1231,11 @@ start_watchers () {
          wtype=${line#*,}
          wtype=${wtype%%,*}
          cmd=${line##*:}
-         efiles="$project_dir/.wfmux/efiles/$name.efiles"
+         efiles="$proj_dir/.wfmux/efiles/$name.efiles"
          state=files
       elif expr "$line" : 'end$' \
       &&   test x$state = xfiles ; then
-         say "$project_dir" >>"$efiles"
+         say "$proj_dir" >>"$efiles"
          nohup start_watcher "$name"   \
                               $wtype    \
                              "$cmd"      \
@@ -1264,7 +1273,7 @@ start_watcher () {
    test x$wtype = x1 && args="${args}r"
 
    if test x"$dir" = xfalse ; then
-      printf $$ >>"$pidfile"
+      printf $$ >>"$pid_file"
       exec entr $args "$cmd" <"$efiles"
    fi
 
@@ -1277,7 +1286,7 @@ start_watcher () {
          break
       }
       exec entr $args "$cmd" <"$efiles" &
-      printf $! >>"$pidfile"
+      printf $! >>"$pid_file"
       waitpid $!
    done
 }
@@ -1285,16 +1294,16 @@ start_watcher () {
 opt_wfmux_wtop () {
    tmux_or_die
 
-   project_dir=`get_project_dir "$(tmux_cur_session)"`
-   test -z "$project_dir" && die_not_wfmux
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$project_dir"
+   cd -L "$proj_dir"
 
-   watch_conf="$project_dir/.wfmux/watch"
+   watch_conf="$proj_dir/.wfmux/watch"
 
 }
 
-#             --[ project_name ]--
+#             --[ proj_name ]--
 #    PID:          not running(red), running($COLOR)
 #    WATCHER_NAME: disable(red), enabled($COLOR)
 #    o/m         : o, not monitored by $runner otherwise m
@@ -1302,19 +1311,19 @@ opt_wfmux_wtop () {
 #    WATCHER_NAME   PID    o/m  COMMAND
 #    watcher_name_1 pid_1  o    command_1
 opt_view () {
-   test -z "$project_name" && return
-   project_name=`basename "$project_name"`
+   test -z "$proj_name" && return
+   proj_name=`basename "$proj_name"`
 
-   printf "${ESC_UNDERLINE}${SUCCESS}${project_name}${ESC_UNSET_ANSI}${ESC_UNSET_ANSI}\n"
+   printf "${ESC_UNDERLINE}${SUCCESS}${proj_name}${ESC_UNSET_ANSI}${ESC_UNSET_ANSI}\n"
    printf "${ESC_BOLD}PID${ESC_UNSET_ANSI}:          shotdown(${ESC_RED}red${ESC_UNSET_ANSI}), running(${SUCCESS}this color${ESC_UNSET_ANSI})\n"
    printf "${ESC_BOLD}WATCHER_NAME${ESC_UNSET_ANSI}: disable(${ESC_RED}red${ESC_UNSET_ANSI}), enabled(${SUCCESS}this color${ESC_UNSET_ANSI})\n"
    printf "${ESC_BOLD}O/M${ESC_UNSET_ANSI}         : ${ESC_BOLD}O${ESC_UNSET_ANSI} = oneshot, ${ESC_BOLD}M${ESC_UNSET_ANSI} = not oneshot\n\n"
 
-   watcher_file="$SESSION_DIR/$project_session/watch"
+   watcher_file="$SESSION_DIR/$proj_session/watch"
    while read watcher ; do
       watcher=$(printf "$watcher" | sed -ne "s///p")
       _name=$(printf "$watcher" | awk 'BEGIN{RS="";FS="\n"};{print $1}')
-      pid_file="$SESSION_DIR/$project_session/$_name/pid"
+      pid_file="$SESSION_DIR/$proj_session/$_name/pid"
       test -s "$pid_file" && _pid=$(cat "$pid_file") || _pid=X
    
       test ${#pid}  -gt $j && j=${#pid}
@@ -1347,7 +1356,7 @@ add_plug () {
    test -z "$name" && return
 
    say "$WFMUX_OPS" | grep -xqF "$name" || {
-      wfmux_message "Another plugin has this name."
+      tmux_message "Another plugin has this name."
       return
    }
 
