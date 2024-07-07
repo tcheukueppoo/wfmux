@@ -476,7 +476,7 @@ new_session () {
       proj_name=$(say "$proj_name" | sed -e 'y/-./__/')
       session=`mktemp -u $proj_name-XXXXXX`
       printf "$session" >>.wfmux/name
-      say '.git' >>.wfmux/ignore
+      say './.git' >>.wfmux/ignore
    fi
 
    if [ -z "${TMUX:-}" ] ; then
@@ -615,7 +615,7 @@ opt_wfmux_switch () {
    fi
 }
 
-## Open tui file manager
+## Open TUI file manager
 opt_wfmux_explore () {
    tmux_or_die
 
@@ -628,20 +628,28 @@ opt_wfmux_explore () {
 
 get_proj_files () {
    ignore=
-   proj_dir=$1
+   proj_dir=
+   dir_opt=
+
+   test "${1#-}" == "$1"    \
+      && dir=   proj_dir=$1  \
+      || dir=$1 proj_dir=$2
+
+   test x"$dir" = x'-d' && dir_opt='-or -type d'
 
    if test -s .wfmux/ignore ; then
       IFS=${NL%?}
       for pattern in `cat .wfmux/ignore` ; do
          ignore="${ignore}${ignore:+ -or}"
-         ignore="${ignore} -name '${pattern}'"
+         ignore="${ignore} -path '${pattern}'"
       done
    fi
 
-   if test -n "$ignore" ; then
-      eval find . '\(' "$ignore" '\)' -prune -or -type f -print
+   if [ -n "$ignore" ] ; then
+      echo eval find . '\(' "$ignore" '\)' -prune -or -type f "$dir_opt"
+      read x
    else
-      find . -type f -print
+      eval find . -type f "$dir_opt"
    fi
 }
 
@@ -683,6 +691,7 @@ opt_wfmux_open () {
    test -z "$proj_dir" && die_not_wfmux
 
    cd -L "$proj_dir"
+
    files=$(get_proj_files "$proj_dir" | eval "$MENU")
 
    IFS=${NL%?}
@@ -1023,15 +1032,6 @@ spin () {
 opt_wfmux_push  () { wfmux_push;         }
 opt_wfmux_fpush () { wfmux_push --force; }
 
-files_to_watch () {
-   proj_dir=$1
-
-   cd -L "$proj_dir"
-   find . -type d
-
-   get_proj_files "$proj_dir"
-}
-
 opt_wfmux_awatch () {
    tmux_or_die
 
@@ -1063,10 +1063,12 @@ opt_wfmux_awatch () {
    read cmd
    test -z "$cmd" && return
 
-   files=$(files_to_watch "$proj_dir" | eval "$MENU")
+   files=$(get_proj_files -d "$proj_dir" | eval "$MENU")
 
-   test -s "$watch_conf" && printf "${NL%?}"              >>"$watch_conf"
-   say "w+,$wtype,[$name]: $cmd${NL%?}${files}${NL%?}end" >>"$watch_conf"
+   if test -s "$watch_conf" ; then
+      printf "${NL%?}" >>"$watch_conf"
+   fi
+   printf "w+,$wtype,[$name]:%s${NL%?}%s${NL%?}end" "$cmd" "$files" >>"$watch_conf"
 
    tmux_message "Added watcher named '$name'"
 }
@@ -1075,11 +1077,9 @@ select_watcher () {
    names=
    watch_conf=$1
 
-   test -f "$watch_conf"       \
-      && test -r "$watch_conf"  \
-      && test -s "$watch_conf"   \
-      || return
+   test -f "$watch_conf" || rm -f "$watch_conf"
 
+   touch "$watch_conf"
    names=$(sed -ne 's/^w[-+],[01],\[\([^]]\+\)\]:.\+$/\1/p' "$watch_conf")
 
    if test -z "$names" ; then
@@ -1089,18 +1089,19 @@ select_watcher () {
    say "$(say "$names" | eval "$MENU")"
 }
 
-validate_conf () {
+check_conf () {
    name=$1
    conf=$2
 
-   c=$(
-      say "$conf"                                      \
-         | sed -ne "1s/^w[-+],[01],\[$name\]:.\+$/1/p"  \
-                -e '$s/^end$/2/p'                        \
-         | wc -l
-   )
+   e="
+      1 { s/^w[-+],[01],\[$name\]:.*[:a-zA-Z].*$/1/p; b }
+      $ { s/^end$/1/p; b }
+      /^\.\//p
+   "
+   a=$(say "$conf" | wc -l)
+   b=$(say "$conf" | sed -ne "$e" | wc -l)
 
-   test $c -ge 2 || wfmux_fail 'Invalid watcher config'
+   test $a -ne $b || wfmux_fail "watcher($name): Invalid watcher config"
 }
 
 opt_wfmux_mwatch () {
@@ -1111,8 +1112,6 @@ opt_wfmux_mwatch () {
 
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
    test -z "$proj_dir" && die_not_wfmux
-
-   cd -L "$proj_dir"
 
    watch_conf="$proj_dir/.wfmux/watch"
 
@@ -1139,9 +1138,9 @@ opt_wfmux_mwatch () {
       wfmux_fail "There is no watcher named '$name'"
    fi
 
-   validate_conf $name "$conf"
+   check_conf $name "$conf"
 
-   tmpfile=$(mktemp /tmp/wfmux.XXXXX)
+   tmpfile=`mktemp /tmp/wfmux.XXXXXX`
    say "$conf" >>$tmpfile
    say '# Please edit the watcher configuration. Empty lines and' >>$tmpfile
    say '# lines starting with "#" will be ignored.' >>$tmpfile
@@ -1149,22 +1148,21 @@ opt_wfmux_mwatch () {
    eval "$edit" $tmpfile
    conf=$(grep -xv '[ \t]*\(#.*\)\?' $tmpfile)
 
-   validate_conf $name "$conf"
+   check_conf $name "$conf"
 
    del_watcher $name "$watch_conf"
-   #printf "${NL%?}%s" "$conf" >>"$watch_conf"
+   if test -s "$watch_conf" ; then
+      printf "${NL%?}" >>"$watch_conf"
+   fi
+
+   printf '%s' "$conf" >>"$watch_conf"
 }
 
 del_watcher () {
-   set -x
    name=$1
    watch_conf=$2
 
-
    sed -i "/^w[-+],[01],\[$name\]:/,/^end$/d" "$watch_conf"
-   cat "$watch_conf"
-   read x
-   set +x
 }
 
 opt_wfmux_rwatch () {
@@ -1192,8 +1190,6 @@ watch_state_edit () {
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
    test -z "$proj_dir" && die_not_wfmux
 
-   cd -L "$proj_dir"
-
    watch_conf="$proj_dir/.wfmux/watch"
 
    name=$(select_watcher "$watch_conf")
@@ -1202,16 +1198,41 @@ watch_state_edit () {
    sed -i "s/^w[-+]\(,[01],\[$name\]:\)/w$state\1/" "$watch_conf"
 }
 
-opt_wfmux_dwatch () { watcher_state_edit -d;  }
-opt_wfmux_ewatch () { watcher_state_edit -e;  }
+opt_wfmux_dwatch () { watcher_state_edit -d; }
+opt_wfmux_ewatch () { watcher_state_edit -e; }
 
-start_watchers () {
+opt_wfmux_sawatch () {
+   :;
+}
+
+opt_wfmux_sowatch () {
+   tmux_or_die
+
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
+
+   name=$(select_watcher "$watch_conf")
+   test -z "$name" && return
+
+   pid_file="$proj_dir/.wfmux/pids/$name.pid"
+
+   if ! test -s "$pid_file" ; then
+      wfmux_fail "watcher($name): Unable to find the pid of the watcher"
+   fi
+
+   read pid <"$pid_file"
+   test -d "/proc/$pid" && kill -9 "$pid"
+}
+
+start_watcher () {
    proj_dir=$1
+   name=${2:-}
+   
    watch_conf="$proj_dir/.wfmux/watch"
 
    test -s "$watch_conf" || return
 
-   name=
+   wname=
    wtype=
    cmd=
 
@@ -1225,35 +1246,46 @@ start_watchers () {
 
       if expr "$line" : '[\t ]*$' ; then
          continue
-      elif expr "$line" : 'w+,[01],\[[^ \t:\]]\+\]:.\+$' ; then
-         name=${line##*,[}
-         name=${name%%]*}
+      elif expr "$line" : 'w+,[01],\[[^ \t:\]]\+\]:.*[:a-zA-Z].*$' ; then
+
+         wname=${line##*,[}
+         wname=${wname%%]*}
          wtype=${line#*,}
          wtype=${wtype%%,*}
          cmd=${line##*:}
-         efiles="$proj_dir/.wfmux/efiles/$name.efiles"
+         efiles="$proj_dir/.wfmux/efiles/$wname.efiles"
          state=files
+
+      elif test -n "$name"   \
+      &&   test -n "$wname"   \
+      &&   test "$name" != "$wname" ; then
+
+         state=watcher
+         continue
+
       elif expr "$line" : 'end$' \
       &&   test x$state = xfiles ; then
+
          say "$proj_dir" >>"$efiles"
-         nohup start_watcher "$name"   \
-                              $wtype    \
-                             "$cmd"      \
-                              $dir        \
-                             "$efiles"
+         nohup run_watch_cmd "$wname"   \
+                              $wtype     \
+                             "$cmd"       \
+                              $dir
          state=watcher
-      elif test x$state = xfiles ; then
-         file=$(say "$file" | sed -e 's/^[ \t]*//;s/[ \t]*$//;s/ /\\ /g')
+      elif test x$state = xfiles \
+      &&   expr "$line" : '\./' ; then
+
+         file=$(say "$line" | sed -e 's/[ \t]*$//;s/ /\\ /g')
 
          IFS=${NL%?}
          for efile in $(eval println "$file") ; do
             if ! test -e "$efile" ; then
-               wfmux_fail "watcher($name): '$efile' does not exist"
+               wfmux_fail "watcher($wname): '$efile' does not exist"
             elif test -d "$efile" ; then
                dir=true
             fi
             say "$efile"
-         done >$efiles
+         done  >"$efiles"
       fi
    done <"$watch_conf" >/dev/null
 
@@ -1262,12 +1294,14 @@ start_watchers () {
    fi
 }
 
-start_watcher () {
+run_watch_cmd () {
    name=$1
    wtype=$2
    cmd='exec tmux set-buffer -b '$name' "$('"$3"' 2>&1)"'
    dir=$4
-   efiles=$5
+
+   pid_file="$proj_dir/.wfmux/pids/$name.pid"
+   efiles="$proj_dir/.wfmux/efiles/$name.efiles"
 
    args='-nps'
    test x$wtype = x1 && args="${args}r"
