@@ -631,12 +631,15 @@ get_proj_files () {
    proj_dir=
    dir_opt=
 
-   test "${1#-}" == "$1"    \
+   test $# -eq 2 || die "get_proj_files: Invalid number of arguments"
+
+   test "${1#-}" = "$1"     \
       && dir=   proj_dir=$1  \
       || dir=$1 proj_dir=$2
 
    test x"$dir" = x'-d' && dir_opt='-or -type d'
 
+   cd -L -- "$proj_dir"
    if test -s .wfmux/ignore ; then
       IFS=${NL%?}
       for pattern in `cat .wfmux/ignore` ; do
@@ -646,8 +649,7 @@ get_proj_files () {
    fi
 
    if [ -n "$ignore" ] ; then
-      echo eval find . '\(' "$ignore" '\)' -prune -or -type f "$dir_opt"
-      read x
+      eval find . '\(' "$ignore" '\)' -prune -or -type f "$dir_opt"
    else
       eval find . -type f "$dir_opt"
    fi
@@ -1101,7 +1103,7 @@ check_conf () {
    a=$(say "$conf" | wc -l)
    b=$(say "$conf" | sed -ne "$e" | wc -l)
 
-   test $a -ne $b || wfmux_fail "watcher($name): Invalid watcher config"
+   test $a -eq $b || wfmux_fail "watcher($name): Invalid watcher config"
 }
 
 opt_wfmux_mwatch () {
@@ -1181,7 +1183,7 @@ opt_wfmux_rwatch () {
    del_watcher "$name" "$watch_conf"
 }
 
-watch_state_edit () {
+watcher_state_edit () {
    tmux_or_die
 
    state=${1:-e}
@@ -1202,7 +1204,24 @@ opt_wfmux_dwatch () { watcher_state_edit -d; }
 opt_wfmux_ewatch () { watcher_state_edit -e; }
 
 opt_wfmux_sawatch () {
-   :;
+   tmux_or_die
+
+   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   test -z "$proj_dir" && die_not_wfmux
+
+   name=$(select_watcher "$watch_conf")
+   test -z "$name" && return
+
+   pid_file="$proj_dir/.wfmux/pids/$name.pid"
+
+   if test -s "$pid_file"   \
+   && read pid <"$pid_file"  \
+   && test -d "/proc/$pid" ; then
+      tmux_message "watch($name): Watcher already running"
+      return
+   fi
+
+   start_watcher "$proj_dir" "$name"
 }
 
 opt_wfmux_sowatch () {
