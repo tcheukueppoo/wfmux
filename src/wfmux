@@ -13,7 +13,7 @@ readonly ESC_UNDERLINE='\033[4m'
 readonly ESC_RED='\033[31m'
 readonly ESC_UNSET_ANSI='\033[0m'
 
-readonly CONFIG_DIR=${XDG_CONFIG_HOME:-"$HOME/.config"}
+readonly CONFIG_DIR="${XDG_CONFIG_HOME:-"$HOME/.config"}"
 readonly WFMUX_CONF_DIR="${CONFIG_DIR%%/}/wfmux"
 readonly WFMUX_PLUG_DIR="$WFMUX_CONF_DIR/plugins"
 readonly TMUX_CONF="$HOME/.tmux.conf"
@@ -25,12 +25,13 @@ readonly LOCAL_BIN="$HOME/.local/bin"
 # Some watcher commands frequently used in some projects.
 readonly WATCHER_TEMPLATES="$WFMUX_CONF_DIR/watchers"
 
-readonly NL=$(printf '\n_')
+readonly NL="$(printf '\n_')"
+readonly NUM_RE='[0-9]\|[1-9][0-9]\+'
 
 mkdir -p "$CONFIG_DIR" "$WFMUX_CONF_DIR"
 
 # Large size
-readonly WFMUX_LS=$(cat <<END
+readonly WFMUX_LS="$(cat <<END
                                 ┌────────────
                                 │
                                 │                                            ┌───────
@@ -49,7 +50,7 @@ readonly WFMUX_LS=$(cat <<END
          ──────┘                                                             │
                                                                              │
 END
-)
+)"
 
 # Medium size
 readonly WFMUX_MS=$(cat <<END
@@ -71,7 +72,7 @@ END
 # Small size
 readonly WFMUX_SS='WFMUX'
 
-readonly WFMUX=$(cat<<END
+readonly WFMUX="$(cat<<END
 
      ┌──────────────┤ WFMUX
     ┌┴────────────────────────────────────────┐
@@ -82,10 +83,10 @@ readonly WFMUX=$(cat<<END
     │                                         │
     └─────────────────────────────────────────┘
 END
-)
+)"
 
 WFMUX_CONF="$WFMUX_CONF_DIR/wfmux.conf"
-WFMUX_OPS=$(cat <<END
+WFMUX_OPS="$(cat <<END
 new
 tmux
 dump
@@ -108,9 +109,11 @@ rwatch
 mwatch
 ewatch
 dwatch
+sawatch
+sowatch
 ops
 END
-)
+)"
 
 # Default configuration if external config file does not exist
 COLOR=4
@@ -128,15 +131,15 @@ TBIND_SWITCH='w'
 
 MENU='fzf --multi --margin=25%'
 
-PROJ_DIRS=$(cat <<END
+PROJ_DIRS="$(cat <<END
 $HOME/projects
 $HOME/oprojects
 END
-)
+)"
 
 USE_XDG_OPEN=false
 
-PROGRAMS=$(cat <<END
+PROGRAMS="$(cat <<END
 tty=true,text=vim '%s'
 tty=true,directory=lf '%s'
 tty=false,video=ffplay -hide_banner -loop 0 '%s'
@@ -144,7 +147,7 @@ tty=true,audio=ffplay  -hide_banner -loop 0 -nodisp '%s'
 tty=false,pdf=zathura '%s'
 tty=false,image=feh '%s'
 END
-)
+)"
 
 usage () {
    cat <<END
@@ -301,25 +304,25 @@ END
    }
 
    # Save initial terminal setting, will set back after exiting dashboard
-   init_stty=`stty -g`
+   init_stty=$(stty -g)
    stty -cooked -echo time 0 min 1
    printf "${ESC_ALT_SCREEN}${ESC_HIDE_CUR}${ESC_CLEAR_SCREEN}"
 
    {
       term_h= term_w=
-      while [ 1 ] ; do
+      while true ; do
 
-         new_size=`stty -F /dev/tty size`
-         test x"$new_size" = x"$term_h $term_w" && {
+         new_size=$(stty -F /dev/tty size)
+         test "$new_size" = "$term_h $term_w" && {
             sleep 1
             continue
          }
 
          term_h=$(say "$new_size" | cut -d' ' -f1)
          term_w=$(say "$new_size" | cut -d' ' -f2)
-         if test $term_h -lt 32 || test $term_w -lt 97 ; then
+         if   test "$term_h" -lt 32 || test "$term_w" -lt 97 ; then
             _size=SS
-         elif test $term_h -lt 43 || test $term_w -lt 155 ; then
+         elif test "$term_h" -lt 43 || test "$term_w" -lt 155 ; then
             _size=MS
          else
             _size=LS
@@ -327,7 +330,7 @@ END
          eval 'wfmux_h=$(printf "$WFMUX_'$_size'" | wc -l)
                wfmux_w=$(printf "$WFMUX_'$_size'" | awk "$awk_max")'
 
-         wfmux_h=$(expr $wfmux_h + `dashboard_msg | wc -l`)
+         wfmux_h=$(expr "$wfmux_h" + `dashboard_msg | wc -l`)
 
          x=$((($term_w - $wfmux_w) / 2))
          y=$((($term_h - $wfmux_h) / 2))
@@ -361,7 +364,7 @@ END
    kill -KILL $! || :
 
    stty "$init_stty"
-   printf "$ESC_UNSET_ANSI$ESC_SHOW_CUR"
+   printf "$ESC_NORMAL_SCREEN$ESC_UNSET_ANSI$ESC_SHOW_CUR"
    tput clear
 }
 
@@ -513,7 +516,7 @@ opt_wfmux_new () {
 
    test -z "$input" && return
 
-   if test x"$input" = xf ; then
+   if test "$input" = f ; then
       new_session
    elif expr "$input" : '\([0-9]\|[1-9][0-9]\+\)$' >/dev/null ; then
       session=$(tmux list-sessions -F '#S' | sed -n "${input}p")
@@ -527,7 +530,7 @@ set_whxy () {
    name=$1
    win_att=$2
 
-   num_re='[0-9]\|[1-9][0-9]\+'
+   num_re="$NUM_RE"
    com_re='C\|P\|M\|W'
 
    x_re="\($com_re\|R\|$num_re\)"
@@ -562,7 +565,7 @@ END
 opt_wfmux_dump () { dump_conf; }
 opt_wfmux_tmux () { dump_conf >>"$TMUX_CONF"; }
 
-println () {
+each () {
    for i in "$@" ; do
       say "$i"
    done
@@ -579,14 +582,14 @@ get_proj_dir () {
    for dir in $PROJ_DIRS ; do
       proj_dir=$(say "$dir/$proj_name" | tr '_' '?' | sed -e 's/\([^\\]\) /\1\\ /g')
 
-      for proj_dir in $(eval println "$proj_dir") ; do
+      for proj_dir in $(eval each "$proj_dir") ; do
          test -d "$proj_dir"       \
             && test -x "$proj_dir"  \
             && cd -L "$proj_dir"     \
             || continue
 
          test -f '.wfmux/name'                        \
-            && test x$session = x"$(cat .wfmux/name)"  \
+            && test "$session" = "$(cat .wfmux/name)"  \
             && say "$proj_dir"
       done
    done
@@ -626,18 +629,21 @@ opt_wfmux_explore () {
       || eval "$FILE_MANAGER" "$proj_dir"
 }
 
+# Add some checks as it's exposed since this function is exposed
+# as a wfmux API function.
 get_proj_files () {
    ignore=
-   proj_dir=
    dir_opt=
 
-   test $# -eq 2 || die "get_proj_files: Invalid number of arguments"
+   test $# -eq 1       \
+      || test $# -eq 2  \
+      || die "get_proj_files: Invalid number of arguments"
 
    test "${1#-}" = "$1"     \
       && dir=   proj_dir=$1  \
       || dir=$1 proj_dir=$2
 
-   test x"$dir" = x'-d' && dir_opt='-or -type d'
+   test "$dir" = '-d' && dir_opt='-or -type d'
 
    cd -L -- "$proj_dir"
    if test -s .wfmux/ignore ; then
@@ -687,7 +693,7 @@ say () {
 opt_wfmux_open () {
    tmux_or_die
 
-   test x"$USE_XDG_OPEN" = xtrue && requires xdg-open
+   test "$USE_XDG_OPEN" = true && requires xdg-open
 
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
    test -z "$proj_dir" && die_not_wfmux
@@ -699,7 +705,7 @@ opt_wfmux_open () {
    IFS=${NL%?}
    for file in $files ; do
 
-      if test x"$USE_XDG_OPEN" = xtrue ; then
+      if test "$USE_XDG_OPEN" = true ; then
          cmd="xdg-open '$file'"
       else
          filetype=`get_filetype "$file"`
@@ -734,7 +740,7 @@ wfmux_run_cmd () {
    use_tty=$2
    shell=
 
-   test x$use_tty = xtrue || {
+   test "$use_tty" = true || {
       nohup "$cmd" >/dev/null 2>&1
       return 0
    }
@@ -856,11 +862,11 @@ wfmux_commit () {
       file=${change#* }
       ctype=${change%% *}
 
-      test x"${ctype%?}" != x'-' && continue
+      test "${ctype%?}" != '-' && continue
 
       ctype=${ctype#?}
-      test x$ctype != xM       \
-         && test x$ctype != xU  \
+      test "$ctype" != M       \
+         && test "$ctype" != U  \
          && continue
 
       git add "$file" 2>/dev/null || wfmux_fail "'$file' Couldn't be added to the index"
@@ -880,7 +886,7 @@ opt_wfmux_acommit () {
 git_branches () {
    IFS=${NL%?}
    for lbranch in `git branch --list --no-color` ; do
-      test x"${lbranch% *}" = x'*' && continue
+      test "${lbranch% *}" = '*' && continue
 
       lbranch=${lbranch#  }
       rbranch=$(git rev-parse --abbrev-ref "$lbranch@{u}" 2>/dev/null)
@@ -904,7 +910,7 @@ wfmux_new_branch () {
       say "$branch: Local branch name already exists"
       printf 'New name (y/n)? '
       read input
-      test x"$input" != xy && return
+      test "$input" != y && return
 
       printf ': '
       read lbranch
@@ -928,7 +934,7 @@ wfmux_checkout () {
 
    is_git_repository || return
 
-   test x"${1:-}" = x'--clean-worktree' && {
+   test "${1:-}" = '--clean-worktree' && {
       test -z "$(git_status)" || {
          wfmux_fail 'Still have local changes to be commited'
       }
@@ -941,7 +947,7 @@ wfmux_checkout () {
    branch=${branch#? }
    branch=${branch%% *}
 
-   if test x$btype = xL ; then
+   if test "$btype" = L ; then
       git checkout "$branch"
    else
       wfmux_new_branch "$branch"
@@ -1059,7 +1065,7 @@ opt_wfmux_awatch () {
 
    printf 'one shot? (y/n) '
    read wtype
-   test x"$wtype" = xy && wtype=1 || wtype=0
+   test "$wtype" = y && wtype=1 || wtype=0
 
    printf 'cmd: '
    read cmd
@@ -1067,10 +1073,7 @@ opt_wfmux_awatch () {
 
    files=$(get_proj_files -d "$proj_dir" | eval "$MENU")
 
-   if test -s "$watch_conf" ; then
-      printf "${NL%?}" >>"$watch_conf"
-   fi
-   printf "w+,$wtype,[$name]:%s${NL%?}%s${NL%?}end" "$cmd" "$files" >>"$watch_conf"
+   say "w+,$wtype,[$name]:$cmd${NL%?}$files${NL%?}end" >>"$watch_conf"
 
    tmux_message "Added watcher named '$name'"
 }
@@ -1128,9 +1131,8 @@ opt_wfmux_mwatch () {
       }
       b
       :loop
-         /^[ \t]*$/ { n; b loop }
-         /^end$/    { p; q }
-         p
+         /^\.\// { p; n; b loop }
+         /^end$/ { p; q }
          n
          b loop
    "
@@ -1142,22 +1144,17 @@ opt_wfmux_mwatch () {
 
    check_conf $name "$conf"
 
-   tmpfile=`mktemp /tmp/wfmux.XXXXXX`
+   tmpfile=$(mktemp /tmp/wfmux.XXXXXX)
    say "$conf" >>$tmpfile
    say '# Please edit the watcher configuration. Empty lines and' >>$tmpfile
    say '# lines starting with "#" will be ignored.' >>$tmpfile
 
    eval "$edit" $tmpfile
-   conf=$(grep -xv '[ \t]*\(#.*\)\?' $tmpfile)
+   conf=$(grep -xv '[[:space:]]*\(#.*\)\?' $tmpfile)
 
    check_conf $name "$conf"
-
    del_watcher $name "$watch_conf"
-   if test -s "$watch_conf" ; then
-      printf "${NL%?}" >>"$watch_conf"
-   fi
-
-   printf '%s' "$conf" >>"$watch_conf"
+   say "$conf" >>"$watch_conf"
 }
 
 del_watcher () {
@@ -1186,8 +1183,8 @@ opt_wfmux_rwatch () {
 watcher_state_edit () {
    tmux_or_die
 
-   state=${1:-e}
-   test x"$state" = x'-e' && state=+ || state=-
+   state=${1:--e}
+   test "$state" = '-e' && state=+ || state=-
 
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
    test -z "$proj_dir" && die_not_wfmux
@@ -1209,15 +1206,18 @@ opt_wfmux_sawatch () {
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
    test -z "$proj_dir" && die_not_wfmux
 
+   watch_conf="$proj_dir/.wfmux/watch"
+
    name=$(select_watcher "$watch_conf")
    test -z "$name" && return
 
    pid_file="$proj_dir/.wfmux/pids/$name.pid"
 
-   if test -s "$pid_file"   \
-   && read pid <"$pid_file"  \
+   if test -s "$pid_file"                    \
+   && read pid <"$pid_file"                   \
+   && expr "$pid" : "\($NUM_RE\)$" >/dev/null  \
    && test -d "/proc/$pid" ; then
-      tmux_message "watch($name): Watcher already running"
+      tmux_message "watch($name): This watcher is already running"
       return
    fi
 
@@ -1240,6 +1240,10 @@ opt_wfmux_sowatch () {
    fi
 
    read pid <"$pid_file"
+   if ! expr "$pid" : "\($NUM_RE\)$" >/dev/null ; then
+      wfmux_fail "watcher($name): Invalid value found at '$pid_file'"
+   fi
+
    test -d "/proc/$pid" && kill -9 "$pid"
 }
 
@@ -1248,31 +1252,33 @@ start_watcher () {
    name=${2:-}
    
    watch_conf="$proj_dir/.wfmux/watch"
-
    test -s "$watch_conf" || return
 
-   wname=
-   wtype=
-   cmd=
+   efiles_dir="$proj_dir/.wfmux/efiles"
+   mkdir -p "$efiles_dir"
+
+   wname=''
+   wtype=''
+   cmd=''
 
    n=0
    dir=false
-   efiles=
+   efiles=''
    state=watcher
 
    while read line ; do
       n=$(($n + 1))
 
-      if expr "$line" : '[\t ]*$' ; then
+      if expr "$line" : '[[:space:]]*$' ; then
          continue
-      elif expr "$line" : 'w+,[01],\[[^ \t:\]]\+\]:.*[:a-zA-Z].*$' ; then
+      elif expr "$line" : 'w+,[01],\[[^]:[:space:]]\+\]:.*[:a-zA-Z].*$' ; then
 
-         wname=${line##*,[}
-         wname=${wname%%]*}
-         wtype=${line#*,}
-         wtype=${wtype%%,*}
-         cmd=${line##*:}
-         efiles="$proj_dir/.wfmux/efiles/$wname.efiles"
+         wname="${line##w+,?,[}"
+         wname="${wname%%]*}"
+         wtype="${line#*,}"
+         wtype="${wtype%%,*}"
+         cmd="${line#w+,?,\[*\]:}"
+         efiles="$efiles_dir/$wname.efiles"
          state=files
 
       elif test -n "$name"   \
@@ -1283,21 +1289,23 @@ start_watcher () {
          continue
 
       elif expr "$line" : 'end$' \
-      &&   test x$state = xfiles ; then
+      &&   test "$state" = files ; then
 
          say "$proj_dir" >>"$efiles"
-         nohup run_watch_cmd "$wname"   \
-                              $wtype     \
-                             "$cmd"       \
-                              $dir
+         nohup run_watch_cmd "$wname"    \
+                             "$wtype"     \
+                             "'$cmd'"      \
+                             "$dir"         \
+                             "'$efiles'"
          state=watcher
-      elif test x$state = xfiles \
+
+      elif test "$state" = files \
       &&   expr "$line" : '\./' ; then
 
-         file=$(say "$line" | sed -e 's/[ \t]*$//;s/ /\\ /g')
+         file=$(say "$line" | sed -e 's/[[:space:]]*$//;s/ /\\ /g')
 
          IFS=${NL%?}
-         for efile in $(eval println "$file") ; do
+         for efile in $(eval each "$file") ; do
             if ! test -e "$efile" ; then
                wfmux_fail "watcher($wname): '$efile' does not exist"
             elif test -d "$efile" ; then
@@ -1306,10 +1314,10 @@ start_watcher () {
             say "$efile"
          done  >"$efiles"
       fi
-   done <"$watch_conf" >/dev/null
+   done <"$watch_conf"
 
-   if test x$state = xfiles ; then
-      wfmux_fail "('$watch_config'): Failed to parse config at line $n."
+   if test "$state" = files ; then
+      wfmux_fail "('$watch_conf'): Failed to parse config at line $n."
    fi
 }
 
@@ -1318,14 +1326,18 @@ run_watch_cmd () {
    wtype=$2
    cmd='exec tmux set-buffer -b '$name' "$('"$3"' 2>&1)"'
    dir=$4
+   proj_dir="$5"
 
-   pid_file="$proj_dir/.wfmux/pids/$name.pid"
+   pid_dir="$proj_dir/.wfmux/pids"
+   pid_file="$pid_dir/$name.pid"
    efiles="$proj_dir/.wfmux/efiles/$name.efiles"
 
-   args='-nps'
-   test x$wtype = x1 && args="${args}r"
+   mkdir -p "$pid_dir"
 
-   if test x"$dir" = xfalse ; then
+   args='-nps'
+   test "$wtype" = 1 && args="${args}r"
+
+   if test "$dir" = xfalse ; then
       printf $$ >>"$pid_file"
       exec entr $args "$cmd" <"$efiles"
    fi
@@ -1335,7 +1347,9 @@ run_watch_cmd () {
       test -e "$efiles"       \
          && test -s "$efiles"  \
          || {
-         tmux set-buffer -b $name "Couldn't read '$efiles', please restart the watcher!"
+         tmux set-buffer \
+            -b "$name"    \
+            "Couldn't read '$efiles', please restart the watcher!"
          break
       }
       exec entr $args "$cmd" <"$efiles" &
@@ -1426,7 +1440,7 @@ wfmux_load_plugins () {
    for plug in "$WFMUX_PLUG_DIR"/*.wfmux.sh ; do
       . "$plug"
       test $? -eq 0 && continue
-      tmux_message "load('$plug') has a non-zero exit status"
+      tmux_message "load_plug('$plug') has a non-zero exit status"
       return 1
    done
 }
@@ -1444,7 +1458,7 @@ opt_wfmux_ops () {
    cmd_val=`command -v "$func"`
    if test -z "$cmd_val" ; then
       tmux_message "$func: undefined wfmux operation"
-   elif test x"$cmd_val" != x"$func" ; then
+   elif test "$cmd_val" != "$func" ; then
       tmux_message "$func: wfmux operation should be a function!"
    else
       eval "$func"
