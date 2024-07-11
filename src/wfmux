@@ -201,10 +201,9 @@ main () {
          usage 0
          ;;
       -c|--conf)
-         test $# -eq 1 && WFMUX_CONF=$2 || usage 1
-         if ! test -e "$WFMUX_CONF" ; then
-            die "Config file '$WFMUX_CONF' does not exist"
-         fi
+         test $# -gt 2 || usage 1
+         test -e "$2"  || die "Conf file '$2' does not exist"
+         WFMUX_CONF=$2
          shift
          ;;
       -*)
@@ -212,11 +211,14 @@ main () {
          ;;
       *)
          test -n "$opt_name" && usage 1
+         say "$WFMUX_OPS" | grep -xqF "$1"
+
+         test $? -ne 0 && {
+            e_msg="'$1' is an unknown wfmux operation"
+            test -n "${TMUX:-}" && tmux_message "$e_msg"
+            die "$e_msg"
+         }
          opt_name=$1
-         printf "$WFMUX_OPS" | grep -xqF "$opt_name"
-         if test $? -ne 0 ; then
-            die "'$opt_name' is an unknown wfmux operation"
-         fi
          ;;
       esac
       shift
@@ -227,40 +229,49 @@ main () {
       . "$WFMUX_CONF"       || die "Non-zero exit status when sourcing config"
    }
 
-   check_conf_variables
+   check_conf_vars
    eval "opt_wfmux_$opt_name"
 }
 
-check_conf_variables () {
-   var=
-   is_set=
+die_conf () {
+   test -z "${TMUX:-}"                   \
+      && die "('$WFMUX_CONF'): $*"        \
+      || wfmux_die "('$WFMUX_CONF'): $*."
+}
 
-   die_conf () {
-      die "('$WFMUX_CONF'): $*"
-   }
+check_conf_vars () {
+   var=''
+   is_set=''
 
-   v_error () {
+   v_err () {
       die_conf "Invalid value assigned to '$1'"
    }
 
-   for var in USE_XDG_OPEN WATCHER MENU FILE_MANAGER WIN_ATT_OPT \
-              PROJ_DIRS TBIND_OPS TBIND_SELECT TBIND_EXPLORE ; do
+   # Check it all here though they aren't all used in a single wfmux opt
+   for var in USE_XDG_OPEN MENU WIN_ATT_OPT PROJ_DIRS   \
+              FILE_MANAGER WATCHER TBIND_OPS TBIND_OPEN  \
+              TBIND_EXPLORE TBIND_SWITCH ; do
 
       eval 'is_set=${'$var':+true}'
       test -z "$is_set" && die_conf "'$var' isn't defined"
    done
 
-   ## Check if we've got sane values
-   expr "$COLOR"        : '[0-9]$'           >/dev/null || v_error COLOR
-   expr "$USE_XDG_OPEN" : '\(true\|false\)$' >/dev/null || v_error USE_XDG_OPEN
+   # Check if we've got sane values
+   expr "$COLOR" : '[0-9]$' >/dev/null || v_err COLOR
 
-   for cmd in FILE_MANAGER WATCHER MENU ; do
-      eval 'command' '-v' '${'$cmd'}' || die_conf "Command '$cmd' not found"
-   done >/dev/null
+   test "$USE_XDG_OPEN" = true        \
+      || test "$USE_XDG_OPEN" = false  \
+      || v_err USE_XDG_OPEN
 
-   OIFS=$IFS IFS=${NL%?}
+   # MENU is used by most wfmux opt, so check it here!
+   menu="${MENU%% *}"
+   command -v "$menu" >/dev/null \
+      || die_conf '$'"MENU: '$menu': Command not found"
+
    proj_dirs=
+   O_IFS=$IFS IFS=${NL%?}
 
+   # This variable is used by all wfmux opts
    for path in $PROJ_DIRS ; do
       rpath=$(realpath -e "$path" 2>/dev/null)
 
@@ -271,7 +282,7 @@ check_conf_variables () {
       proj_dirs="$proj_dirs${proj_dirs:+${NL%?}}$rpath"
    done
 
-   IFS=$OIFS
+   IFS=$O_IFS
    PROJ_DIRS=$(printf '%s' "$proj_dirs")
 }
 
@@ -380,7 +391,7 @@ tmux_message () {
    tmux display-message -d 2500 -- "$*."
 }
 
-wfmux_fail () {
+wfmux_die () {
    tmux_message "$*"
    tmux display-popup -C
    exit 1
@@ -405,7 +416,7 @@ shrink_proj_dirs () {
       sdirs=$(say "$sdirs" | sed -e "s#^/$name/#*/#")
 
       # Shrink more
-      OIFS=$IFS IFS=/
+      O_IFS=$IFS IFS=/
       for name in $path ; do
          test $(say "$sdirs" | grep "^\*/$name/" | wc -l) -eq 1 && continue
 
@@ -417,7 +428,7 @@ shrink_proj_dirs () {
 
          sdirs=$_sdirs
       done
-      IFS=$OIFS
+      IFS=$O_IFS
 
       sdirs=$(say "$sdirs" | sed -e 's/\*/.../')
    done
@@ -454,6 +465,7 @@ new_session () {
    line=${line#[}
    proj_ddir=$(say "$PROJ_DIRS" | sed -ne "${line}p")
    proj_name=$(basename "$project")
+   session=$(say "$proj_name" | sed -e 'y/-./__/')
    proj_dir="$proj_ddir/$proj_name"
 
    cd -L "$proj_dir"
@@ -469,8 +481,8 @@ new_session () {
    if test -d .wfmux      \
    && test -x .wfmux       \
    && test -s .wfmux/name   \
-   && expr "$(cat .wfmux/name)" : "$proj_name-.\\{6\\}$" >/dev/null ; then
-      session=`cat .wfmux/name`
+   && expr "$(cat .wfmux/name)" : "$session-.\\{6\\}$" >/dev/null ; then
+      session=$(cat .wfmux/name)
    else
       rm -rf .wfmux
       mkdir .wfmux
@@ -540,12 +552,12 @@ set_whxy () {
 
    c=$(say "$win_att" | sed -ne "s/^${size_re}x${size_re}+${x_re}+${y_re}$/w=\1 h=\3 x=\5 y=\6/p")
 
-   test -z "$c" && die "Invalid value assigned to '$name'"
+   test -z "$c" && die_conf "Invalid value assigned to '$name'"
    eval "$c"
 }
 
 dump_conf () {
-   set_whxy WIN_ATT_OPT $WIN_ATT_OPT
+   set_whxy WIN_ATT_OPT "$WIN_ATT_OPT"
 
    cat <<END
 unbind M-$TBIND_OPEN
@@ -605,7 +617,7 @@ opt_wfmux_switch () {
    wfmux_sessions=
 
    IFS=${NL%?}
-   for session in `tmux list-sessions -F '#S'` ; do
+   for session in $(tmux list-sessions -F '#S') ; do
       test -z "$(get_proj_dir "$session")" && continue
       wfmux_sessions="${wfmux_sessions}${session}\n"
    done
@@ -622,18 +634,19 @@ opt_wfmux_switch () {
 opt_wfmux_explore () {
    tmux_or_die
 
-   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   requires "$FILE_MANAGER"
+
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
 
    test -z "$proj_dir"     \
       && die_not_wfmux      \
       || eval "$FILE_MANAGER" "$proj_dir"
 }
 
-# Add some checks as it's exposed since this function is exposed
-# as a wfmux API function.
+# Add some checks since this function is exposed as a wfmux API function.
 get_proj_files () {
-   ignore=
-   dir_opt=
+   ignore=''
+   dir_opt=''
 
    test $# -eq 1       \
       || test $# -eq 2  \
@@ -731,14 +744,14 @@ opt_wfmux_open () {
          }
       fi
 
-      wfmux_run_cmd "$cmd" $use_tty
+      run_cmd "$cmd" $use_tty
    done
 }
 
-wfmux_run_cmd () {
+run_cmd () {
    cmd=$1
    use_tty=$2
-   shell=
+   shell=''
 
    test "$use_tty" = true || {
       nohup "$cmd" >/dev/null 2>&1
@@ -791,18 +804,18 @@ opt_wfmux_shell () {
 
 is_git_repository () {
    git rev-parse --show-toplevel >/dev/null 2>&1 || {
-      wfmux_fail "This project isn't a git repository"
+      wfmux_die "This project isn't a git repository"
    }
 }
 
 die_not_wfmux () {
-   wfmux_fail 'This is not a wfmux tmux session'
+   wfmux_die 'This is not a wfmux tmux session'
 }
 
 requires () {
    for cmd in "$@" ; do
       command -v "$cmd" >/dev/null \
-         || wfmux_fail "$cmd: Command not found"
+         || wfmux_die "$cmd: Command not found"
    done
 }
 
@@ -812,6 +825,7 @@ has () {
 
 opt_wfmux_log () {
    tmux_or_die
+
    requires git
 
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
@@ -828,8 +842,9 @@ git_status () {
    git status --porcelain --ignore-submodules
 }
 
-wfmux_commit () {
+commit () {
    tmux_or_die
+
    requires git
 
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
@@ -840,13 +855,13 @@ wfmux_commit () {
    is_git_repository || return
 
    export EDITOR=${EDITOR:-vim}
-   command -v "$EDITOR" >/dev/null || wfmux_fail "$EDITOR: Command not found"
+   command -v "$EDITOR" >/dev/null || wfmux_die "$EDITOR: Command not found"
 
    gstatus=$(git_status | sed -e 's/^ /-/;s/^??/-U/;s/^\(.\)  /\1 /')
 
    test -z "$gstatus"  \
       && test $# -eq 0  \
-      && wfmux_fail 'Nothing to commit, working tree clean'
+      && wfmux_die 'Nothing to commit, working tree clean'
 
    gstatus=$(say "$gstatus" | eval "$MENU")
 
@@ -869,23 +884,24 @@ wfmux_commit () {
          && test "$ctype" != U  \
          && continue
 
-      git add "$file" 2>/dev/null || wfmux_fail "'$file' Couldn't be added to the index"
+      git add "$file" 2>/dev/null || wfmux_die "'$file' Couldn't be added to the index"
    done
 
    git commit "$@"
 }
 
 opt_wfmux_commit () {
-   wfmux_commit || tmux_message "Unable to commit"
+   commit || tmux_message "Unable to commit"
 }
 
 opt_wfmux_acommit () {
-   wfmux_commit --amend || tmux_message "Unable to amend"
+   commit --amend || tmux_message "Unable to amend"
 }
 
 git_branches () {
    IFS=${NL%?}
-   for lbranch in `git branch --list --no-color` ; do
+
+   for lbranch in $(git branch --list --no-color) ; do
       test "${lbranch% *}" = '*' && continue
 
       lbranch=${lbranch#  }
@@ -901,7 +917,7 @@ git_branches () {
    git branch --remote --no-color | sed -ne '2,$s/^ */R /p'
 }
 
-wfmux_new_branch () {
+new_branch () {
    rbranch=$1
    lbranch=${rbranch##*/}
 
@@ -923,11 +939,12 @@ wfmux_new_branch () {
    git checkout -b "$lbranch" --track "$rbranch"
 }
 
-wfmux_checkout () {
+git_checkout () {
    tmux_or_die
+
    requires git
 
-   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
 
    cd -L "$proj_dir"
@@ -936,7 +953,7 @@ wfmux_checkout () {
 
    test "${1:-}" = '--clean-worktree' && {
       test -z "$(git_status)" || {
-         wfmux_fail 'Still have local changes to be commited'
+         wfmux_die 'Still have local changes to be commited'
       }
    }
 
@@ -950,25 +967,28 @@ wfmux_checkout () {
    if test "$btype" = L ; then
       git checkout "$branch"
    else
-      wfmux_new_branch "$branch"
+      new_branch "$branch"
    fi
 
-   if git_status | grep -xq '?? \.wfmux' ; then
-      printf '.wfmux/' >>.gitignore
-      git add .wfmux
-   fi
+   test $? -eq 0 && {
+      tmux_message "Switched to '$branch'"
 
-   test $? -eq 0 && tmux_message "Switched to '$branch'"
+      git_status | grep -xq '?? \.wfmux' && {
+         printf '.wfmux/' >>.gitignore
+         git add .wfmux
+      }
+   }
 
    input_2_quit
    tmux display-popup -C
 }
 
-opt_wfmux_checkout  () { wfmux_checkout --clean-worktree; }
-opt_wfmux_fcheckout () { wfmux_checkout;                  }
+opt_wfmux_checkout  () { git_checkout --clean-worktree; }
+opt_wfmux_fcheckout () { git_checkout;                  }
 
 opt_wfmux_cbranch () {
    tmux_or_die
+
    requires git
 
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
@@ -991,6 +1011,7 @@ input_2_quit () {
 
 opt_wfmux_nremote () {
    tmux_or_die
+
    requires git
 
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
@@ -1014,6 +1035,7 @@ opt_wfmux_nremote () {
 
 wfmux_push () {
    tmux_or_die
+
    requires git
 
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
@@ -1053,14 +1075,14 @@ opt_wfmux_awatch () {
    test -z "$name" && return
 
    expr "$name" : '[a-zA-Z][-0-9a-zA-Z]*$' >/dev/null || {
-      wfmux_fail "'$name' isn't a valid watcher name"
+      wfmux_die "'$name' isn't a valid watcher name"
    }
 
    watch_conf="$proj_dir/.wfmux/watch"
 
    if test -s "$watch_conf"  \
    && grep -q "^w[-+],[01],\[$name\]:" "$watch_conf" ; then
-      wfmux_fail "A watcher named '$name' already exists"
+      wfmux_die "A watcher named '$name' already exists"
    fi
 
    printf 'one shot? (y/n) '
@@ -1088,7 +1110,7 @@ select_watcher () {
    names=$(sed -ne 's/^w[-+],[01],\[\([^]]\+\)\]:.\+$/\1/p' "$watch_conf")
 
    if test -z "$names" ; then
-      wfmux_fail 'There are no configured watchers'
+      wfmux_die 'There are no configured watchers'
    fi
 
    say "$(say "$names" | eval "$MENU")"
@@ -1106,7 +1128,7 @@ check_conf () {
    a=$(say "$conf" | wc -l)
    b=$(say "$conf" | sed -ne "$e" | wc -l)
 
-   test $a -eq $b || wfmux_fail "watcher($name): Invalid watcher config"
+   test "$a" -eq "$b" || wfmux_die "watcher($name): Invalid watcher config"
 }
 
 opt_wfmux_mwatch () {
@@ -1139,7 +1161,7 @@ opt_wfmux_mwatch () {
 
    conf=$(sed -ne "$e" "$watch_conf")
    if test -z "$conf" ; then
-      wfmux_fail "There is no watcher named '$name'"
+      wfmux_die "There is no watcher named '$name'"
    fi
 
    check_conf $name "$conf"
@@ -1181,8 +1203,6 @@ opt_wfmux_rwatch () {
 }
 
 watcher_state_edit () {
-   tmux_or_die
-
    state=${1:--e}
    test "$state" = '-e' && state=+ || state=-
 
@@ -1195,13 +1215,33 @@ watcher_state_edit () {
    test -z "$name" && return
 
    sed -i "s/^w[-+]\(,[01],\[$name\]:\)/w$state\1/" "$watch_conf"
+   grep -q "^w$state,[01],\[$name\]:" "$watch_conf"
 }
 
-opt_wfmux_dwatch () { watcher_state_edit -d; }
-opt_wfmux_ewatch () { watcher_state_edit -e; }
+opt_wfmux_dwatch () {
+   tmux_or_die
+
+   if watcher_state_edit -d ; then
+      tmux_message "Watcher successfully disabled"
+   else
+      wfmux_die "Couldn't disable the watcher"
+   fi
+}
+
+opt_wfmux_ewatch () {
+   tmux_or_die
+
+   if watcher_state_edit -e ; then
+      tmux_message "Watcher successfully enabled"
+   else
+      wfmux_die "Couldn't enable the watcher"
+   fi
+}
 
 opt_wfmux_sawatch () {
    tmux_or_die
+
+   command -v "$WATCHER" >/dev/null || die_conf "$watcher: command not found"
 
    proj_dir=`get_proj_dir "$(tmux_cur_session)"`
    test -z "$proj_dir" && die_not_wfmux
@@ -1236,12 +1276,12 @@ opt_wfmux_sowatch () {
    pid_file="$proj_dir/.wfmux/pids/$name.pid"
 
    if ! test -s "$pid_file" ; then
-      wfmux_fail "watcher($name): Unable to find the pid of the watcher"
+      wfmux_die "watcher($name): Unable to find the pid of the watcher"
    fi
 
    read pid <"$pid_file"
    if ! expr "$pid" : "\($NUM_RE\)$" >/dev/null ; then
-      wfmux_fail "watcher($name): Invalid value found at '$pid_file'"
+      wfmux_die "watcher($name): Invalid value found at '$pid_file'"
    fi
 
    test -d "/proc/$pid" && kill -9 "$pid"
@@ -1292,11 +1332,12 @@ start_watcher () {
       &&   test "$state" = files ; then
 
          say "$proj_dir" >>"$efiles"
-         nohup run_watch_cmd "$wname"    \
+         run_watch_cmd "$wname"    \
                              "$wtype"     \
-                             "'$cmd'"      \
+                             "$cmd"      \
                              "$dir"         \
-                             "'$efiles'"
+                             "$efiles"
+         read x
          state=watcher
 
       elif test "$state" = files \
@@ -1307,7 +1348,7 @@ start_watcher () {
          IFS=${NL%?}
          for efile in $(eval each "$file") ; do
             if ! test -e "$efile" ; then
-               wfmux_fail "watcher($wname): '$efile' does not exist"
+               wfmux_die "watcher($wname): '$efile' does not exist"
             elif test -d "$efile" ; then
                dir=true
             fi
@@ -1317,7 +1358,7 @@ start_watcher () {
    done <"$watch_conf"
 
    if test "$state" = files ; then
-      wfmux_fail "('$watch_conf'): Failed to parse config at line $n."
+      wfmux_die "('$watch_conf'): Failed to parse config at line $n."
    fi
 }
 
@@ -1326,13 +1367,17 @@ run_watch_cmd () {
    wtype=$2
    cmd='exec tmux set-buffer -b '$name' "$('"$3"' 2>&1)"'
    dir=$4
-   proj_dir="$5"
+   proj_dir=$5
 
    pid_dir="$proj_dir/.wfmux/pids"
    pid_file="$pid_dir/$name.pid"
-   efiles="$proj_dir/.wfmux/efiles/$name.efiles"
+
+   echo "we are here: cmd: $cmd, name: $name, wtype: $wtype, dir: $dir, proj_dir: $proj_dir"
+   read x
 
    mkdir -p "$pid_dir"
+
+   efiles="$proj_dir/.wfmux/efiles/$name.efiles"
 
    args='-nps'
    test "$wtype" = 1 && args="${args}r"
