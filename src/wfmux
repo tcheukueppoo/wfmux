@@ -215,6 +215,7 @@ main () {
 
          test $? -ne 0 && {
             e_msg="'$1' is an unknown wfmux operation"
+
             test -n "${TMUX:-}" && tmux_message "$e_msg"
             die "$e_msg"
          }
@@ -708,7 +709,7 @@ opt_wfmux_open () {
 
    test "$USE_XDG_OPEN" = true && requires xdg-open
 
-   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
 
    cd -L "$proj_dir"
@@ -721,7 +722,7 @@ opt_wfmux_open () {
       if test "$USE_XDG_OPEN" = true ; then
          cmd="xdg-open '$file'"
       else
-         filetype=`get_filetype "$file"`
+         filetype=$(get_filetype "$file")
          test -z "$filetype" && continue
 
          data=$(say "$PROGRAMS" | grep "^tty=\(true\|false\),$filetype=" | head -n1)
@@ -779,7 +780,7 @@ run_cmd () {
       tmux send-keys -t "$target" "$cmd" C-m
 
    # Spawn off a new pane in the current window if there's only one pane
-   # and that pane it's busy.
+   # and that pane is busy.
    elif test $(say "$panes" | wc -l) -eq 1 ; then
 
       tmux split-window -h "$cmd"
@@ -826,9 +827,9 @@ has () {
 opt_wfmux_log () {
    tmux_or_die
 
-   requires git
+   requires less git
 
-   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
 
    cd -L "$proj_dir"
@@ -1137,7 +1138,7 @@ opt_wfmux_mwatch () {
    edit=${EDITOR:-vim}
    requires "$edit"
 
-   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
 
    watch_conf="$proj_dir/.wfmux/watch"
@@ -1189,7 +1190,7 @@ del_watcher () {
 opt_wfmux_rwatch () {
    tmux_or_die
 
-   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
 
    cd -L "$proj_dir"
@@ -1203,10 +1204,10 @@ opt_wfmux_rwatch () {
 }
 
 watcher_state_edit () {
-   state=${1:--e}
+   state="${1:--e}"
    test "$state" = '-e' && state=+ || state=-
 
-   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
 
    watch_conf="$proj_dir/.wfmux/watch"
@@ -1243,8 +1244,10 @@ opt_wfmux_sawatch () {
 
    command -v "$WATCHER" >/dev/null || die_conf "$watcher: command not found"
 
-   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
+
+   cd -L "$proj_dir"
 
    watch_conf="$proj_dir/.wfmux/watch"
 
@@ -1262,13 +1265,16 @@ opt_wfmux_sawatch () {
    fi
 
    start_watcher "$proj_dir" "$name"
+   tmux display-popup -C
 }
 
 opt_wfmux_sowatch () {
    tmux_or_die
 
-   proj_dir=`get_proj_dir "$(tmux_cur_session)"`
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
+
+   watch_conf="$proj_dir/.wfmux/watch"
 
    name=$(select_watcher "$watch_conf")
    test -z "$name" && return
@@ -1279,12 +1285,13 @@ opt_wfmux_sowatch () {
       wfmux_die "watcher($name): Unable to find the pid of the watcher"
    fi
 
-   read pid <"$pid_file"
-   if ! expr "$pid" : "\($NUM_RE\)$" >/dev/null ; then
-      wfmux_die "watcher($name): Invalid value found at '$pid_file'"
-   fi
-
-   test -d "/proc/$pid" && kill -9 "$pid"
+   while read pid ; do
+      if ! expr "$pid" : "\($NUM_RE\)$" >/dev/null ; then
+         wfmux_die "watcher($name): Invalid pid found at '$pid_file'"
+      fi
+      echo test -d "/proc/$pid" && kill -9 "$pid"
+   done <"$pid_file"
+   read x
 }
 
 start_watcher () {
@@ -1332,12 +1339,11 @@ start_watcher () {
       &&   test "$state" = files ; then
 
          say "$proj_dir" >>"$efiles"
-         run_watch_cmd "$wname"    \
+         nohup run_watch_cmd "$wname"    \
                              "$wtype"     \
-                             "$cmd"      \
+                             "'$cmd'"      \
                              "$dir"         \
-                             "$efiles"
-         read x
+                             "'$proj_dir'"
          state=watcher
 
       elif test "$state" = files \
@@ -1347,11 +1353,8 @@ start_watcher () {
 
          IFS=${NL%?}
          for efile in $(eval each "$file") ; do
-            if ! test -e "$efile" ; then
-               wfmux_die "watcher($wname): '$efile' does not exist"
-            elif test -d "$efile" ; then
-               dir=true
-            fi
+            test -e "$efile" || wfmux_die "watcher($wname): '$efile' does not exist"
+            test -d "$efile" && dir=true
             say "$efile"
          done  >"$efiles"
       fi
@@ -1360,46 +1363,47 @@ start_watcher () {
    if test "$state" = files ; then
       wfmux_die "('$watch_conf'): Failed to parse config at line $n."
    fi
+   echo end
+   return
 }
 
 run_watch_cmd () {
-   name=$1
-   wtype=$2
+   name="$1"
+   wtype="$2"
    cmd='exec tmux set-buffer -b '$name' "$('"$3"' 2>&1)"'
-   dir=$4
-   proj_dir=$5
+   dir="$4"
+   proj_dir="$5"
+   efiles="$proj_dir/.wfmux/efiles/$name.efiles"
 
    pid_dir="$proj_dir/.wfmux/pids"
    pid_file="$pid_dir/$name.pid"
 
-   echo "we are here: cmd: $cmd, name: $name, wtype: $wtype, dir: $dir, proj_dir: $proj_dir"
-   read x
-
    mkdir -p "$pid_dir"
-
-   efiles="$proj_dir/.wfmux/efiles/$name.efiles"
 
    args='-nps'
    test "$wtype" = 1 && args="${args}r"
 
-   if test "$dir" = xfalse ; then
-      printf $$ >>"$pid_file"
+   if test "$dir" = false ; then
+      say $$ >>"$pid_file"
       exec entr $args "$cmd" <"$efiles"
    fi
 
    args="${args}d"
-   while sleep 0.5 ; do
-      test -e "$efiles"       \
-         && test -s "$efiles"  \
-         || {
-         tmux set-buffer \
-            -b "$name"    \
-            "Couldn't read '$efiles', please restart the watcher!"
-         break
+   while true ; do
+
+      sleep 0.5
+      test -e "$efiles" && test -s "$efiles" || {
+         e_msg="Wfmux failed to read '$efiles', please restart the watcher!"
+
+         tmux set-buffer -b "$name" "$e_msg"
+         die "$e_smg"
       }
+
       exec entr $args "$cmd" <"$efiles" &
-      printf $! >>"$pid_file"
-      waitpid $!
+
+      say $! >>"$pid_file"
+      say $$ >"$pid_file"
+      waitpid "$!"
    done
 }
 
