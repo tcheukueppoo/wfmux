@@ -109,6 +109,8 @@ rwatch
 mwatch
 ewatch
 dwatch
+vwatch
+cwatch
 sawatch
 sowatch
 ops
@@ -176,10 +178,10 @@ OPT_NAME:
     dump         dump wfmux's tmux configuration to stdout.
     tmux         update wfmux's tmux configuration at ~/.tmux.conf.
     ops          a wrapper to the above operations.
-    dwatcher     disable a watcher from the watcher list
-    ewatcher     enable a watcher from the watcher list
-    awatcher     Add a new watcher to a project's watcher list.
-    rwatcher     Remove a new watcher to a project's watcher list.
+    dwatch       disable a watcher from the watcher list
+    ewatch       enable a watcher from the watcher list
+    awatch       Add a new watcher to a project's watcher list.
+    rwatch       Remove a new watcher to a project's watcher list.
     view         Fancy view of the concerned running project watcher.
 
 END
@@ -214,10 +216,10 @@ main () {
          say "$WFMUX_OPS" | grep -xqF "$1"
 
          test $? -ne 0 && {
-            e_msg="'$1' is an unknown wfmux operation"
+            emsg="'$1' is an unknown wfmux operation"
 
-            test -n "${TMUX:-}" && tmux_message "$e_msg"
-            die "$e_msg"
+            test -n "${TMUX:-}" && tmux_message "$emsg"
+            die "$emsg"
          }
          opt_name=$1
          ;;
@@ -586,7 +588,7 @@ each () {
 
 get_proj_dir () {
    session=$1
-   proj_name=
+   proj_name=''
 
    proj_name=$(say "$session" | sed -ne 's/^\([^-]\+\)-.\{6\}$/\1/p')
    test -z "$proj_name" && return
@@ -696,7 +698,7 @@ get_filetype () {
 }
 
 nohup () {
-   { trap '' HUP; eval "$@"; } &
+   { trap '' HUP; "$@"; } &
 }
 
 say () {
@@ -749,22 +751,33 @@ opt_wfmux_open () {
    done
 }
 
+get_shell () {
+   sh="${SHELL:-}"
+
+   if test -z "$sh" ; then
+      id=$(id -u)
+      sh=$(cat '/etc/passwd' | grep "x:$id:")
+      sh="${sh##*:}"
+   fi
+   sh="${sh##*/}"
+   say "${sh:-sh}"
+}
+
 run_cmd () {
    cmd=$1
    use_tty=$2
-   shell=''
+   sh=''
 
    test "$use_tty" = true || {
-      nohup "$cmd" >/dev/null 2>&1
+      { trap '' HUP; eval "$cmd" } &
       return 0
    }
 
    panes=$(tmux list-panes -F '#{pane_current_command}:#P:#{pane_active}')
 
    # If possible, run the command in an idle pane.
-   shell=${SHELL:-sh}
-   shell=${shell##*/}
-   idle_panes=$(say "$panes" | grep "^$shell:")
+   sh=$(get_shell)
+   idle_panes=$(say "$panes" | grep "^$sh:")
 
    if test -n "$idle_panes" ; then
 
@@ -855,7 +868,7 @@ commit () {
 
    is_git_repository || return
 
-   export EDITOR=${EDITOR:-vim}
+   export EDITOR="${EDITOR:-vim}"
    command -v "$EDITOR" >/dev/null || wfmux_die "$EDITOR: Command not found"
 
    gstatus=$(git_status | sed -e 's/^ /-/;s/^??/-U/;s/^\(.\)  /\1 /')
@@ -961,9 +974,9 @@ git_checkout () {
    branch=`git_branches | eval "$MENU"`
    test -z "$branch" && return
 
-   btype=${branch%% *}
-   branch=${branch#? }
-   branch=${branch%% *}
+   btype="${branch%% *}"
+   branch="${branch#? }"
+   branch="${branch%% *}"
 
    if test "$btype" = L ; then
       git checkout "$branch"
@@ -975,7 +988,7 @@ git_checkout () {
       tmux_message "Switched to '$branch'"
 
       git_status | grep -xq '?? \.wfmux' && {
-         printf '.wfmux/' >>.gitignore
+         say '.wfmux/' >>.gitignore
          git add .wfmux
       }
    }
@@ -1075,7 +1088,7 @@ opt_wfmux_awatch () {
    read name
    test -z "$name" && return
 
-   expr "$name" : '[a-zA-Z][-0-9a-zA-Z]*$' >/dev/null || {
+   expr "$name" : "[a-zA-Z][-a-zA-Z0-9]\+$" >/dev/null || {
       wfmux_die "'$name' isn't a valid watcher name"
    }
 
@@ -1225,7 +1238,7 @@ opt_wfmux_dwatch () {
    if watcher_state_edit -d ; then
       tmux_message "Watcher successfully disabled"
    else
-      wfmux_die "Couldn't disable the watcher"
+      wfmux_die "The watcher couldn't be disabled"
    fi
 }
 
@@ -1235,7 +1248,7 @@ opt_wfmux_ewatch () {
    if watcher_state_edit -e ; then
       tmux_message "Watcher successfully enabled"
    else
-      wfmux_die "Couldn't enable the watcher"
+      wfmux_die "The watcher couldn't be enabled"
    fi
 }
 
@@ -1289,14 +1302,14 @@ opt_wfmux_sowatch () {
       if ! expr "$pid" : "\($NUM_RE\)$" >/dev/null ; then
          wfmux_die "watcher($name): Invalid pid found at '$pid_file'"
       fi
-      echo test -d "/proc/$pid" && kill -9 "$pid"
+      test -d "/proc/$pid" && kill -KILL $pid
    done <"$pid_file"
    read x
 }
 
 start_watcher () {
-   proj_dir=$1
-   name=${2:-}
+   proj_dir="$1"
+   name="${2:-}"
    
    watch_conf="$proj_dir/.wfmux/watch"
    test -s "$watch_conf" || return
@@ -1304,9 +1317,9 @@ start_watcher () {
    efiles_dir="$proj_dir/.wfmux/efiles"
    mkdir -p "$efiles_dir"
 
-   wname=''
-   wtype=''
    cmd=''
+   wtype=''
+   wname=''
 
    n=0
    dir=false
@@ -1335,17 +1348,6 @@ start_watcher () {
          state=watcher
          continue
 
-      elif expr "$line" : 'end$' \
-      &&   test "$state" = files ; then
-
-         say "$proj_dir" >>"$efiles"
-         nohup run_watch_cmd "$wname"    \
-                             "$wtype"     \
-                             "'$cmd'"      \
-                             "$dir"         \
-                             "'$proj_dir'"
-         state=watcher
-
       elif test "$state" = files \
       &&   expr "$line" : '\./' ; then
 
@@ -1357,20 +1359,29 @@ start_watcher () {
             test -d "$efile" && dir=true
             say "$efile"
          done  >"$efiles"
+
+      elif expr "$line" : 'end$' \
+      &&   test "$state" = files ; then
+
+         say "$proj_dir" >>"$efiles"
+         run_watch_cmd "$wname"   \
+                       "$wtype"    \
+                       "$cmd"       \
+                       "$dir"        \
+                       "$proj_dir"
+         state=watcher
       fi
    done <"$watch_conf"
 
    if test "$state" = files ; then
       wfmux_die "('$watch_conf'): Failed to parse config at line $n."
    fi
-   echo end
-   return
 }
 
 run_watch_cmd () {
    name="$1"
    wtype="$2"
-   cmd='exec tmux set-buffer -b '$name' "$('"$3"' 2>&1)"'
+   cmd='exec tmux set-buffer -b '$name-$id' "$('"$3"' 2>&1)"'
    dir="$4"
    proj_dir="$5"
    efiles="$proj_dir/.wfmux/efiles/$name.efiles"
@@ -1383,28 +1394,88 @@ run_watch_cmd () {
    args='-nps'
    test "$wtype" = 1 && args="${args}r"
 
+   sh=$(get_shell)
+   requires "$sh"
+
    if test "$dir" = false ; then
-      say $$ >>"$pid_file"
-      exec entr $args "$cmd" <"$efiles"
+      c='say $! >"$pid_file"; exec entr $args "$cmd" <"$efiles"'
    fi
 
    args="${args}d"
-   while true ; do
+   c=$(cat <<END
+      say \$$ >"$pid_file"
 
-      sleep 0.5
-      test -e "$efiles" && test -s "$efiles" || {
-         e_msg="Wfmux failed to read '$efiles', please restart the watcher!"
+      while sleep 0.5 ; do
 
-         tmux set-buffer -b "$name" "$e_msg"
-         die "$e_smg"
-      }
+         test -e "$efiles"       \
+            && test -s "$efiles"  \
+            || {
+            tmux set-buffer -b "$name" "wfmux failed to read '$efiles', restart the watcher!"
+         }
 
-      exec entr $args "$cmd" <"$efiles" &
+         sh -c '
+            say \$$ >>"$pid_file"
+            say \$$
+            exec entr $args "$cmd" <"$efiles" >/dev/null 2>&1
+         ' >
+         waitpid "\$(cat )"
+      done
+END
+   )
 
-      say $! >>"$pid_file"
-      say $$ >"$pid_file"
-      waitpid "$!"
-   done
+   { $sh -c "$c" } &
+}
+
+list_buffers () {
+   id=$1
+   tmux list-buffers | grep -x "[A-Za-z][-a-zA-Z0-9]\+-$id"
+}
+
+opt_wfmux_vwatch () {
+   tmux_or_die
+
+   requires less
+
+   session=$(tmux_cur_session)
+   proj_dir=$(get_proj_dir "$session")
+
+   test -z "$proj_dir" && die_not_wfmux
+
+   cd -L "$proj_dir"
+
+   buf=$(list_buffers "${session##*-}" | eval "$MENU") 
+   test -z "$buf" && return
+
+   tmux new-window "tmux show-buffer -b '"$buf"' | more"
+
+   tmux display-popup -C
+   return
+}
+
+opt_wfmux_cwatch () {
+   tmux_or_die
+
+   requires less
+
+   session=$(tmux_cur_session)
+   proj_dir=$(get_proj_dir "$session")
+
+   test -z "$proj_dir" && die_not_wfmux
+
+   cd -L "$proj_dir"
+
+   id="${session##*-}"
+   tmux new-window '
+                     buf_list="'"$(list_buffers "$id")"'"
+                     NL=$(printf "\n_")
+                     IFS=${NL%?}
+                     for buf in $buf_list ; do
+                        tmux show-buffer -b "$buf" | more
+                     done
+                   '
+
+   tmux display-popup -C
+   return
 }
 
 opt_wfmux_wtop () {
@@ -1416,7 +1487,6 @@ opt_wfmux_wtop () {
    cd -L "$proj_dir"
 
    watch_conf="$proj_dir/.wfmux/watch"
-
 }
 
 #             --[ proj_name ]--
