@@ -1391,39 +1391,37 @@ run_watch_cmd () {
 
    mkdir -p "$pid_dir"
 
-   args='-nps'
-   test "$wtype" = 1 && args="${args}r"
+   entr_opts='-nps'
+   test "$wtype" = 1 && entr_opts="${entr_opts}r"
 
    sh=$(get_shell)
    requires "$sh"
 
-   if test "$dir" = false ; then
-      c='say $! >"$pid_file"; exec entr $args "$cmd" <"$efiles"'
+   if test "$dir" = true ; then
+      entr_opts="${entr_opts}d"
+      watch='
+         say $$ >"$pid_file"
+
+         while sleep 0.5 ; do
+
+            test -e "$efiles"       \
+               && test -s "$efiles"  \
+               || {
+               tmux set-buffer -b "$name" "wfmux failed to read '"'"'$efiles'"'"', restart the watcher!"
+               break
+            }
+
+            entr $entr_opts "$cmd" <"$efiles" >/dev/null 2>&1 &
+
+            say $! >>"$pid_file"
+            waitpid $!
+         done
+      '
+   else
+      watch='say $$ >"$pid_file"; exec entr $entr_opts "$cmd" <"$efiles"'
    fi
 
-   args="${args}d"
-   c=$(cat <<END
-      say \$$ >"$pid_file"
-
-      while sleep 0.5 ; do
-
-         test -e "$efiles"       \
-            && test -s "$efiles"  \
-            || {
-            tmux set-buffer -b "$name" "wfmux failed to read '$efiles', restart the watcher!"
-         }
-
-         sh -c '
-            say \$$ >>"$pid_file"
-            say \$$
-            exec entr $args "$cmd" <"$efiles" >/dev/null 2>&1
-         ' >
-         waitpid "\$(cat )"
-      done
-END
-   )
-
-   { $sh -c "$c" } &
+   { exec $sh -c "$watch"; } &
 }
 
 list_buffers () {
@@ -1558,9 +1556,10 @@ wfmux_load_plugins () {
 
    for plug in "$WFMUX_PLUG_DIR"/*.wfmux.sh ; do
       . "$plug"
-      test $? -eq 0 && continue
-      tmux_message "load_plug('$plug') has a non-zero exit status"
-      return 1
+      if test $? -ne 0 ; then
+         tmux_message "load_plug('$plug') has a non-zero exit status"
+         return 1
+      fi
    done
 }
 
