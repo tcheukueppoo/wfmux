@@ -387,7 +387,7 @@ tmux_cur_session () {
 }
 
 tmux_cur_pty () {
-   tmux list-clients -F '#S:#{client_tty}' | grep -F "$(tmux_cur_session):" | cut -d: -f2
+   tmux list-clients -F '#S:#{client_tty}' | grep -F "$(tmux_cur_session):" | head -n1 | cut -d: -f2
 }
 
 tmux_message () {
@@ -499,7 +499,9 @@ new_session () {
 
    if [ -z "${TMUX:-}" ] ; then
       tmux has-session -t "$session" 2>/dev/null || {
-         start_watcher "$proj_dir"
+         id="${session##*-}"
+
+         start_watcher "$proj_dir" "$id"
          display_dashboard
          tmux new-session -s "$session" -d
       }
@@ -511,7 +513,7 @@ new_session () {
    fi
 }
 
-# Create a new tmux wfmux session while in an existing session.
+# Create a new wfmux tmux session while in an existing tmux session
 opt_wfmux_nsession () { new_session; }
 
 # Select a project and open a tmux session
@@ -872,7 +874,7 @@ commit () {
       && test $# -eq 0  \
       && wfmux_die 'Nothing to commit, working tree clean'
 
-   gstatus=$(say "$gstatus" | eval "$MENU")
+   test -n "$gstatus" && gstatus=$(say "$gstatus" | eval "$MENU")
 
    test -z "$gstatus"  \
       && test $# -eq 0  \
@@ -1252,7 +1254,10 @@ opt_wfmux_sawatch () {
 
    command -v "$WATCHER" >/dev/null || die_conf "$WATCHER: command not found"
 
-   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
+   session=$(tmux_cur_session)
+   id="${session##*-}"
+
+   proj_dir=$(get_proj_dir "$session")
    test -z "$proj_dir" && die_not_wfmux
 
    cd -L "$proj_dir"
@@ -1271,7 +1276,7 @@ opt_wfmux_sawatch () {
       wfmux_die "watch($name): The watcher is already running"
    fi
 
-   start_watcher "$proj_dir" "$name"
+   start_watcher "$proj_dir" "$id" "$name"
    tmux display-popup -C
 }
 
@@ -1303,7 +1308,8 @@ opt_wfmux_sowatch () {
 
 start_watcher () {
    proj_dir="$1"
-   name="${2:-}"
+   id="$2"
+   name="${3:-}"
    
    watch_conf="$proj_dir/.wfmux/watch"
    test -s "$watch_conf" || return
@@ -1342,7 +1348,7 @@ start_watcher () {
          state=watcher
          continue
 
-      elif test "$state" = files \
+      elif test $state = files \
       &&   expr "$line" : '\./' ; then
 
          file=$(say "$line" | sed -e 's/[[:space:]]*$//;s/ /\\ /g')
@@ -1355,20 +1361,23 @@ start_watcher () {
          done  >"$efiles"
 
       elif expr "$line" : 'end$' \
-      &&   test "$state" = files ; then
+      &&   test $state = files ; then
 
-         say "$proj_dir" >>"$efiles"
-         run_watcher_cmd "$wname"   \
-                         "$wtype"    \
-                         "$cmd"       \
-                         "$dir"        \
-                         "$proj_dir"
          state=watcher
+         run_watcher_cmd "$proj_dir" \
+                         "$id"        \
+                         "$wname"      \
+                         "$wtype"       \
+                         "$cmd"          \
+                         "$dir"
+      else
+         wfmux_die "('$watch_conf'): Failed to parse config at line $n"
       fi
    done <"$watch_conf"
 
-   if test "$state" = files ; then
-      wfmux_die "('$watch_conf'): Failed to parse config at line $n."
+   read x
+   if test $state = files ; then
+      wfmux_die "('$watch_conf'): Expected the 'end' token"
    fi
 }
 
@@ -1376,51 +1385,64 @@ run_watcher_cmd () {
    sh=$(get_shell)
    requires "$sh"
 
-   name="$1"
-   wtype="$2"
-   cmd='exec tmux set-buffer -b '$name-$id' "$('"$3"' 2>&1)"'
-   dir="$4"
-   proj_dir="$5"
-   efiles="$proj_dir/.wfmux/efiles/$name.efiles"
+   proj_dir="$1"
+   id="$2"
+   wname="$3"
+   wtype="$4"
+   cmd='exec tmux set-buffer -b '$wname-$id' "$('"$5"' 2>&1)"'
+   dir="$6"
+   efiles="$proj_dir/.wfmux/efiles/$wname.efiles"
 
    pid_dir="$proj_dir/.wfmux/pids"
-   pid_file="$pid_dir/$name.pid"
+   pid_file="$pid_dir/$wname.pid"
 
    mkdir -p "$pid_dir"
 
    entr_opts='-nps'
    test "$wtype" = 1 && entr_opts="${entr_opts}r"
 
+   export efiles
+   export pid_file
+   export entr_opts
+   export cmd
    if test "$dir" = true ; then
       entr_opts="${entr_opts}d"
+
+      export wname
+      export id
       watch='
         say $$ >"$pid_file"
 
         while sleep 0.5 ; do
 
-           test -e "$efiles"       \
-              && test -s "$efiles"  \
-              || {
-              tmux set-buffer -b "$name" "wfmux failed to read '"'"'$efiles'"'"', restart the watcher!"
-              break
-           }
+           if ! test -e "$efiles"  \
+           || ! test -s "$efiles" ; then
+              emsg="Could not locate files to watch, restart the watcher!"
+              tmux set-buffer -b "$wname-$id" "$emsg"
+           fi
 
            entr $entr_opts "$cmd" <"$efiles" >/dev/null 2>&1 &
-
            say $! >>"$pid_file"
            waitpid $!
         done
       '
    else
-      watch='say $$ >"$pid_file"; exec entr $entr_opts "$cmd" <"$efiles"'
+      watch='
+         printf "$$\n" >"$pid_file"
+         exec entr $entr_opts "$cmd" <"$efiles"
+      '
    fi
 
-   { exec $sh -c "$watch"; } &
+   {
+      trap '' HUP
+      exec $sh -c "$watch"
+   } &
 }
 
 list_buffers () {
    id=$1
-   tmux list-buffers | grep -x "[A-Za-z][-a-zA-Z0-9]\+-$id"
+   tmux list-buffers -F '#{buffer_name}' >/dev/null 2>&1
+   tmux list-buffers -F '#{buffer_name}' | grep -x "[A-Za-z][-a-zA-Z0-9]\+-$id"
 }
 
 opt_wfmux_vwatch () {
@@ -1435,10 +1457,17 @@ opt_wfmux_vwatch () {
 
    cd -L "$proj_dir"
 
-   buf=$(list_buffers "${session##*-}" | eval "$MENU") 
+   id="${session##*-}"
+   buf_list=$(list_buffers "$id")
+
+   test -z "$buf_list" && {
+      wfmux_die 'No wfmux buffer for this project was detected'
+   }
+
+   buf=$(say "$buf_list" | eval "$MENU") 
    test -z "$buf" && return
 
-   tmux new-window "tmux show-buffer -b '"$buf"' | more"
+   tmux new-window "tmux show-buffer -b '"$buf"' | more; read _"
    tmux display-popup -C
    return
 }
@@ -1446,7 +1475,7 @@ opt_wfmux_vwatch () {
 opt_wfmux_cwatch () {
    tmux_or_die
 
-   requires more
+   requires more 
 
    session=$(tmux_cur_session)
    proj_dir=$(get_proj_dir "$session")
@@ -1468,6 +1497,7 @@ opt_wfmux_cwatch () {
                      IFS=${NL%?}
                      for buf in $buf_list ; do
                         tmux show-buffer -b "$buf" | more
+                        read _
                      done
                    '
 
