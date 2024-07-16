@@ -185,7 +185,7 @@ OPT_NAME:
     view         Fancy view of the concerned running project watcher.
 
 END
-   exit $1
+   exit "$1"
 }
 
 die () {
@@ -198,7 +198,7 @@ main () {
 
    test $# -eq 0 && usage 1
    while test $# -ne 0 ; do
-      case $1 in
+      case "$1" in
       -h|--help)
          usage 0
          ;;
@@ -221,7 +221,7 @@ main () {
             test -n "${TMUX:-}" && tmux_message "$emsg"
             die "$emsg"
          }
-         opt_name=$1
+         opt_name="$1"
          ;;
       esac
       shift
@@ -544,8 +544,8 @@ opt_wfmux_new () {
 }
 
 set_whxy () {
-   name=$1
-   win_att=$2
+   name="$1"
+   win_att="$2"
 
    num_re="$NUM_RE"
    com_re='C\|P\|M\|W'
@@ -589,7 +589,7 @@ each () {
 }
 
 get_proj_dir () {
-   session=$1
+   session="$1"
    proj_name=''
 
    proj_name=$(say "$session" | sed -ne 's/^\([^-]\+\)-.\{6\}$/\1/p')
@@ -657,9 +657,9 @@ get_proj_files () {
       || test $# -eq 2  \
       || die "get_proj_files: Invalid number of arguments"
 
-   test "${1#-}" = "$1"     \
-      && dir=   proj_dir=$1  \
-      || dir=$1 proj_dir=$2
+   test "${1#-}" = "$1"       \
+      && dir=     proj_dir="$1"  \
+      || dir="$1" proj_dir="$2"
 
    test "$dir" = '-d' && dir_opt='-or -type d'
 
@@ -680,7 +680,7 @@ get_proj_files () {
 }
 
 get_filetype () {
-   file=$1
+   file="$1"
 
    if command -v xdg-mime >/dev/null ; then
       filetype=$(xdg-mime query filetype "$file")
@@ -762,8 +762,8 @@ get_shell () {
 }
 
 run_cmd () {
-   cmd=$1
-   use_tty=$2
+   cmd="$1"
+   use_tty="$2"
 
    test "$use_tty" = true || {
       { trap '' HUP; eval "$cmd"; } &
@@ -929,10 +929,10 @@ git_branches () {
 }
 
 new_branch () {
-   rbranch=$1
-   lbranch=${rbranch##*/}
+   rbranch="$1"
+   lbranch="${rbranch##*/}"
 
-   git show-ref --verify --quiet refs/heads/$lbranch && {
+   git show-ref --verify --quiet "refs/heads/$lbranch" && {
 
       say "$branch: Local branch name already exists"
       printf 'New name (y/n)? '
@@ -1112,8 +1112,8 @@ opt_wfmux_awatch () {
 }
 
 select_watcher () {
-   names=
-   watch_conf=$1
+   names=''
+   watch_conf="$1"
 
    test -f "$watch_conf" || rm -f "$watch_conf"
 
@@ -1128,8 +1128,8 @@ select_watcher () {
 }
 
 check_conf () {
-   name=$1
-   conf=$2
+   name="$1"
+   conf="$2"
 
    e="
       1 { s/^w[-+],[01],\[$name\]:.*[:a-zA-Z].*$/1/p; b }
@@ -1191,8 +1191,8 @@ opt_wfmux_mwatch () {
 }
 
 del_watcher () {
-   name=$1
-   watch_conf=$2
+   name="$1"
+   watch_conf="$2"
 
    sed -i "/^w[-+],[01],\[$name\]:/,/^end$/d" "$watch_conf"
 }
@@ -1303,7 +1303,6 @@ opt_wfmux_sowatch () {
       fi
       test -d "/proc/$pid" && kill -KILL $pid
    done <"$pid_file"
-   read x
 }
 
 start_watcher () {
@@ -1375,7 +1374,6 @@ start_watcher () {
       fi
    done <"$watch_conf"
 
-   read x
    if test $state = files ; then
       wfmux_die "('$watch_conf'): Expected the 'end' token"
    fi
@@ -1389,7 +1387,12 @@ run_watcher_cmd () {
    id="$2"
    wname="$3"
    wtype="$4"
-   cmd='exec tmux set-buffer -b '$wname-$id' "$('"$5"' 2>&1)"'
+   cmd='
+      tmux set-buffer -b '$wname-$id' ""
+      { '"$5"'; } | while read line ; do
+         tmux set-buffer -a -b '$wname-$id' "$(printf "\n$line")"
+      done
+   '
    dir="$6"
    efiles="$proj_dir/.wfmux/efiles/$wname.efiles"
 
@@ -1417,7 +1420,7 @@ run_watcher_cmd () {
 
            if ! test -e "$efiles"  \
            || ! test -s "$efiles" ; then
-              emsg="Could not locate files to watch, restart the watcher!"
+              emsg="Could not locate files, restart the watcher!"
               tmux set-buffer -b "$wname-$id" "$emsg"
            fi
 
@@ -1440,15 +1443,13 @@ run_watcher_cmd () {
 }
 
 list_buffers () {
-   id=$1
+   id="$1"
    tmux list-buffers -F '#{buffer_name}' >/dev/null 2>&1
    tmux list-buffers -F '#{buffer_name}' | grep -x "[A-Za-z][-a-zA-Z0-9]\+-$id"
 }
 
 opt_wfmux_vwatch () {
    tmux_or_die
-
-   requires more
 
    session=$(tmux_cur_session)
    proj_dir=$(get_proj_dir "$session")
@@ -1467,15 +1468,29 @@ opt_wfmux_vwatch () {
    buf=$(say "$buf_list" | eval "$MENU") 
    test -z "$buf" && return
 
-   tmux new-window "tmux show-buffer -b '"$buf"' | more; read _"
+   # We could avoid tmux buffers and rely on pipe files which
+   # offers a more efficient implementation.
+   tmux new-window '
+                     val="" pval=""
+                     len=0  plen=0
+                     while sleep 0.2 ; do
+                        val=$(tmux show-buffer -b '"$buf"')
+                        len=$(printf "%s\n" "$val" | wc -l)
+
+                        if test "$len" -gt "$plen" ; then
+                           pval="$val"
+                           printf "%s\n" "$val" | tail -n"$(($len - $plen))"
+                           plen="$len"
+                        fi
+                     done
+                     read _
+                   '
    tmux display-popup -C
    return
 }
 
 opt_wfmux_cwatch () {
    tmux_or_die
-
-   requires more 
 
    session=$(tmux_cur_session)
    proj_dir=$(get_proj_dir "$session")
@@ -1496,7 +1511,7 @@ opt_wfmux_cwatch () {
                      NL=$(printf "\n_")
                      IFS=${NL%?}
                      for buf in $buf_list ; do
-                        tmux show-buffer -b "$buf" | more
+                        tmux show-buffer -b "$buf"
                         read _
                      done
                    '
