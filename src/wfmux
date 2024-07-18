@@ -156,13 +156,13 @@ usage () {
 Build an awesome dev workflow using tmux, fzf, lf, entr and more.
 
 Usage: wfmux [ -h | --help ]
-       wfmux [ ( -c | --conf ) CONF ] OPT_NAME
+       wfmux [ ( -c | --conf ) CONF ] OPT
        
 Options:
      -h, --help         print this help message.
      -c, --conf CONF    load CONF configuration file.
 
-OPT_NAME:
+OPT:
     new          Select a project and open its new wfmux tmux session.
     nsession     Create a new wfmux tmux session of a project while in a
                  tmux session.
@@ -183,6 +183,50 @@ OPT_NAME:
     awatch       Add a new watcher to a project's watcher list.
     rwatch       Remove a new watcher to a project's watcher list.
     view         Fancy view of the concerned running project watcher.
+
+
+
+    new          Select a project, create and attach a new tmux session
+                 for it. A project with an already existing tmux session
+                 has that session reused.
+    dump         Dump to the stdout the tmux configuration of wfmux.
+    tmux         Update the tmux configuration for wfmux at ~/.tmux.conf.
+    open         Select a project file and open it.
+    explore      In a popup tmux pane, open at the project directory the
+                 configured TUI file manager.
+    shell        Launch the shell on a popup tmux pane.
+    nsession     Just like \`new' but does not show the already existing
+                 tmux session.
+    switch       Switch between different wfmux sessions.
+
+    log          View the git logs of the current project
+    commit       Select changes of the current project and commit them.
+    acommit      If the working tree is clean, simply run a git amend;
+                 otherwise select changes, add them to the index before
+                 and do a git amend.
+    push         Push changes to the configured remote repositories if
+                 any.
+    fpush        Force push to the remote repository, the default push
+                 wfmux operation refuses to update a remote ref that is
+                 not an ancestor of the local ref used to overwrite it.
+
+    checkout     Switch branches or restore working tree files.
+    fcheckout    Switch branches
+
+    cbranch      Show the current branch of your project in a tmux
+
+view
+awatch
+rwatch
+mwatch
+ewatch
+dwatch
+vwatch
+cwatch
+sawatch
+sowatch
+ops
+
 
 END
    exit "$1"
@@ -657,7 +701,7 @@ get_proj_files () {
       || test $# -eq 2  \
       || die "get_proj_files: Invalid number of arguments"
 
-   test "${1#-}" = "$1"       \
+   test "${1#-}" = "$1"         \
       && dir=     proj_dir="$1"  \
       || dir="$1" proj_dir="$2"
 
@@ -837,7 +881,7 @@ has () {
 opt_wfmux_log () {
    tmux_or_die
 
-   requires less git
+   requires git
 
    proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
@@ -846,7 +890,8 @@ opt_wfmux_log () {
 
    is_git_repository || return
 
-   git log --graph | less
+   git log --graph
+   read _
 }
 
 git_status () {
@@ -1332,13 +1377,13 @@ start_watcher () {
          continue
       elif expr "$line" : 'w+,[01],\[[^]:[:space:]]\+\]:.*[:a-zA-Z].*$' ; then
 
+         state=files
          wname="${line##w+,?,[}"
          wname="${wname%%]*}"
          wtype="${line#*,}"
          wtype="${wtype%%,*}"
          cmd="${line#w+,?,\[*\]:}"
          efiles="$efiles_dir/$wname.efiles"
-         state=files
 
       elif test -n "$name"   \
       &&   test -n "$wname"   \
@@ -1348,7 +1393,7 @@ start_watcher () {
          continue
 
       elif test $state = files \
-      &&   expr "$line" : '\./' ; then
+      &&   expr "$line" : '\.\($|/.*\)' ; then
 
          file=$(say "$line" | sed -e 's/[[:space:]]*$//;s/ /\\ /g')
 
@@ -1363,19 +1408,19 @@ start_watcher () {
       &&   test $state = files ; then
 
          state=watcher
-         run_watcher_cmd "$proj_dir" \
-                         "$id"        \
-                         "$wname"      \
-                         "$wtype"       \
-                         "$cmd"          \
+         run_watcher_cmd "$proj_dir"  \
+                         "$id"         \
+                         "$wname"       \
+                         "$wtype"        \
+                         "$cmd"           \
                          "$dir"
       else
-         wfmux_die "('$watch_conf'): Failed to parse config at line $n"
+         die_conf "('$watch_conf'): Failed to parse config at line $n"
       fi
    done <"$watch_conf"
 
    if test $state = files ; then
-      wfmux_die "('$watch_conf'): Expected the 'end' token"
+      die_conf "('$watch_conf'): Expected the 'end' token"
    fi
 }
 
