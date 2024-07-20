@@ -28,7 +28,7 @@ readonly WATCHER_TEMPLATES="$WFMUX_CONF_DIR/watchers"
 readonly NL="$(printf '\n_')"
 readonly NUM_RE='[0-9]\|[1-9][0-9]\+'
 
-mkdir -p "$CONF_DIR" "$WFMUX_CONF_DIR"
+mkdir -p "$WFMUX_CONF_DIR"
 
 # Large size
 readonly WFMUX_LS=$(cat <<END
@@ -163,72 +163,60 @@ Options:
      -c, --conf CONF    load CONF configuration file.
 
 OPT:
-    new          Select a project and open its new wfmux tmux session.
-    nsession     Create a new wfmux tmux session of a project while in a
-                 tmux session.
-    switch       Switch between wfmux tmux sessions
-    explore      Open file manager to a project directory on a popup pane.
-    open         Select a file to open provided that they exist ...
-    commit       add to the index and commit changes to local repository.
-    acommit      replace the tip of the current branch by creating a new commit
-    checkout     fuzzyly switch between branches of your local repository.
-    fcheckout
-    push         push to the remote repositories.
-    fpush        force-push to the remote repositories.
-    dump         dump wfmux's tmux configuration to stdout.
-    tmux         update wfmux's tmux configuration at ~/.tmux.conf.
-    ops          a wrapper to the above operations.
-    dwatch       disable a watcher from the watcher list
-    ewatch       enable a watcher from the watcher list
-    awatch       Add a new watcher to a project's watcher list.
-    rwatch       Remove a new watcher to a project's watcher list.
-    view         Fancy view of the concerned running project watcher.
-
-
-
     new          Select a project, create and attach a new tmux session
                  for it. A project with an already existing tmux session
                  has that session reused.
     dump         Dump to the stdout the tmux configuration of wfmux.
-    tmux         Update the tmux configuration for wfmux at ~/.tmux.conf.
-    open         Select a project file and open it.
+    tmux         Update the tmux configuration of wfmux at ~/.tmux.conf.
+    open         Select a project file to open.
     explore      In a popup tmux pane, open at the project directory the
                  configured TUI file manager.
     shell        Launch the shell on a popup tmux pane.
     nsession     Just like \`new' but does not show the already existing
                  tmux session.
-    switch       Switch between different wfmux sessions.
+    switch       Switch between different wfmux tmux sessions.
 
-    log          View the git logs of the current project
+    log          View the git logs of the current project.
     commit       Select changes of the current project and commit them.
-    acommit      If the working tree is clean, simply run a git amend;
-                 otherwise select changes, add them to the index before
-                 and do a git amend.
+    acommit      If the working tree is clean, simply run a git amend
+                 command; otherwise select changes and add them to the
+                 index before running a git amend command.
     push         Push changes to the configured remote repositories if
                  any.
     fpush        Force push to the remote repository, the default push
                  wfmux operation refuses to update a remote ref that is
                  not an ancestor of the local ref used to overwrite it.
 
-    checkout     Switch branches or restore working tree files.
-    fcheckout    Switch branches
+    checkout     Switch to a branch in your project.
+    fcheckout    Force the checkout since the above fails if the working
+                 tree is not clean.
 
-    cbranch      Show the current branch of your project in a tmux
+    cbranch      Show in tmux the name of the current branch of your
+                 project.
 
-view
-awatch
-rwatch
-mwatch
-ewatch
-dwatch
-vwatch
-cwatch
-sawatch
-sowatch
-ops
+    awatch       Create a watcher and add it to the watcher registry of
+                 the current project.
+    rwatch       Selected a watcher from the watcher registry to delete
+                 from that registry.
+    mwatch       Modify the attributes of a watcher from the watcher
+                 registry.
+    ewatch       Enable a watcher from the watcher registry, enabled
+                 watchers of a project will be started at the creation
+                 of that project's tmux session.
+    dwatch       Disable a watcher from the watcher registry.
+    vwatch       View the stdout of a running watcher.
+    cwatch       Cycle through the standard output of all the running
+                 watchers of the current project.
+    sawatch      Launch a watcher from the watcher registry of the
+                 current project.
+    sowatch      Stop a running watcher launched from the watcher
+                 registry of the current project.
 
-
+    vtop         View the characteristics of all registered watchers.
+    ops          A wfmux operation to call other wfmux operations whether
+                 built-in or gotten via wfmux plugins.
 END
+
    exit "$1"
 }
 
@@ -1343,9 +1331,9 @@ opt_wfmux_sowatch () {
    fi
 
    while read pid ; do
-      if ! expr "$pid" : "\($NUM_RE\)$" >/dev/null ; then
+      expr "$pid" : "\($NUM_RE\)$" >/dev/null || {
          wfmux_die "watcher($name): Invalid pid found at '$pid_file'"
-      fi
+      }
       test -d "/proc/$pid" && kill -KILL $pid
    done <"$pid_file"
 }
@@ -1489,7 +1477,6 @@ run_watcher_cmd () {
 
 list_buffers () {
    id="$1"
-   tmux list-buffers -F '#{buffer_name}' >/dev/null 2>&1
    tmux list-buffers -F '#{buffer_name}' | grep -x "[A-Za-z][-a-zA-Z0-9]\+-$id"
 }
 
@@ -1565,6 +1552,18 @@ opt_wfmux_cwatch () {
    return
 }
 
+#    NAME: The watcher's name, color: red (disabled), blue (enabled)
+#    PID: The process id of the watcher
+#    STATE:  e (enabled) / d (disabled)
+#    STATUS: r (running) / s (stopped)
+#
+#                [PROJECT_NAME]
+#
+#    NAME   |  PID  | STATE | STATUS | COMMAND
+#   --------+-------+-------+--------+----------
+#    test   | 10722 | E     | S      | make test && herbe ...
+#    deploy | 10764 | D     | R      | make deploy ...
+#
 opt_wfmux_wtop () {
    tmux_or_die
 
@@ -1574,19 +1573,13 @@ opt_wfmux_wtop () {
    cd -L "$proj_dir"
 
    watch_conf="$proj_dir/.wfmux/watch"
+
+   while read line ; do
+      
+   done <"$watch_conf"
 }
 
-#             --[ proj_name ]--
-#    PID:          not running(red), running($COLOR)
-#    WATCHER_NAME: disable(red), enabled($COLOR)
-#    o/m         : o, not monitored by $runner otherwise m
-#
-#    WATCHER_NAME   PID    o/m  COMMAND
-#    watcher_name_1 pid_1  o    command_1
 opt_view () {
-   test -z "$proj_name" && return
-   proj_name=`basename "$proj_name"`
-
    printf "${ESC_UNDERLINE}${SUCCESS}${proj_name}${ESC_UNSET_ANSI}${ESC_UNSET_ANSI}\n"
    printf "${ESC_BOLD}PID${ESC_UNSET_ANSI}:          shotdown(${ESC_RED}red${ESC_UNSET_ANSI}), running(${SUCCESS}this color${ESC_UNSET_ANSI})\n"
    printf "${ESC_BOLD}WATCHER_NAME${ESC_UNSET_ANSI}: disable(${ESC_RED}red${ESC_UNSET_ANSI}), enabled(${SUCCESS}this color${ESC_UNSET_ANSI})\n"
