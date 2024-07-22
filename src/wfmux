@@ -114,6 +114,7 @@ cwatch
 sawatch
 sowatch
 ops
+last
 END
 )
 
@@ -126,10 +127,13 @@ FILE_MANAGER='lf'
 
 WIN_ATT_OPT='20x20+10+20'
 
-TBIND_OPEN='Enter'
-TBIND_EXPLORE='BSpace'
-TBIND_OPS='i'
-TBIND_SWITCH='w'
+BIND_OPS='i'
+BIND_OPEN='Enter'
+BIND_EXPLORE='BSpace'
+BIND_SWITCH='w'
+BIND_SHELL='s'
+BIND_CYCLE='c'
+BIND_LAST='w'
 
 MENU='fzf --multi --margin=25%'
 
@@ -215,6 +219,8 @@ OPT:
     vtop         View the characteristics of all registered watchers.
     ops          A wfmux operation to call other wfmux operations whether
                  built-in or gotten via wfmux plugins.
+    last         Call the last called wfmux operation.
+
 END
 
    exit "$1"
@@ -283,9 +289,11 @@ check_conf_vars () {
    }
 
    # Check it all here though they aren't all used in a single wfmux opt
-   for var in USE_XDG_OPEN MENU WIN_ATT_OPT PROJ_DIRS   \
-              FILE_MANAGER WATCHER TBIND_OPS TBIND_OPEN  \
-              TBIND_EXPLORE TBIND_SWITCH ; do
+   for var in USE_XDG_OPEN MENU WIN_ATT_OPT   \
+              PROJ_DIRS FILE_MANAGER WATCHER   \
+              BIND_OPS BIND_OPEN BIND_EXPLORE   \
+              BIND_SWITCH BIND_SHELL BIND_LAST   \
+              BIND_CYCLE ; do
 
       eval 'is_set=${'$var':+true}'
       test -z "$is_set" && die_conf "'$var' isn't defined"
@@ -300,8 +308,7 @@ check_conf_vars () {
 
    # MENU is used by most wfmux opt, so check it here!
    menu="${MENU%% *}"
-   command -v "$menu" >/dev/null  \
-      || die_conf '$'"MENU: '$menu': Command not found"
+   command -v "$menu" >/dev/null || die_conf "var(MENU): '$menu': Command not found"
 
    proj_dirs=
    O_IFS=$IFS IFS=${NL%?}
@@ -318,11 +325,15 @@ check_conf_vars () {
    done
 
    IFS=$O_IFS
-   PROJ_DIRS=$(printf '%s' "$proj_dirs")
+   PROJ_DIRS="$proj_dirs"
 }
 
-display_dashboard () {
-   awk_max='
+tty_print () {
+   printf '\033[%d;%df%s' "$1" "$2" "$3" >/dev/tty
+}
+
+awk_max () {
+   fn_max='
       BEGIN { len = 0 }
       {
          nlen = length($0)
@@ -331,25 +342,29 @@ display_dashboard () {
       }
       END { print len }
    '
+   awk "$fn_max"
+}
 
-   # Dashboard message, explains how to use wfmux on tmux.
+display_dashboard () {
+
+   # Dashboard message, explains wfmux's tmux bindings.
    dashboard_msg () {
       cat <<END
 The following are tmux bindings related to wfmux.
 
-M-$TBIND_SELECT: fuzzyly open project files
-M-$TBIND_EXPLORE: open file manager
-M-$TBIND_OPS: fuzzyly select other wfmux operations
+M-$BIND_OPEN: Select project files to open.
+M-$BIND_EXPLORE: Open TUI file manager.
+M-$BIND_SHELL: Launch a shell on a popup tmux pane.
+M-$BIND_SWITCH: Switch to other wfmux tmux sessions.
+M-$BIND_LAST: Call the last called wfmux operation.
+M-$BIND_CYCLE: Cycle through the output of running watchers.
+M-$BIND_OPS: Select other wfmux operations to execute.
 
-input any key to exit dashboard
+Input anything to exit this dashboard.
 END
    }
 
-   tty_print () {
-      printf '\033[%d;%df%s' "$1" "$2" "$3" >/dev/tty
-   }
-
-   # Save initial terminal setting, will set back after exiting dashboard
+   # Save initial term setting, will set back after exiting dashboard
    init_stty=$(stty -g)
    stty -cooked -echo time 0 min 1
    printf "${ESC_ALT_SCREEN}${ESC_HIDE_CUR}${ESC_CLEAR_SCREEN}"
@@ -374,7 +389,7 @@ END
             _size=LS
          fi
          eval 'wfmux_h=$(printf "$WFMUX_'$_size'" | wc -l)
-               wfmux_w=$(printf "$WFMUX_'$_size'" | awk "$awk_max")'
+               wfmux_w=$(printf "$WFMUX_'$_size'" | awk_max)'
 
          wfmux_h=$(expr "$wfmux_h" + $(dashboard_msg | wc -l))
 
@@ -597,17 +612,28 @@ dump_conf () {
    set_whxy WIN_ATT_OPT "$WIN_ATT_OPT"
 
    cat <<END
-unbind M-$TBIND_OPEN
-bind   M-$TBIND_OPEN display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux open"
 
-unbind M-$TBIND_EXPLORE
-bind   M-$TBIND_EXPLORE display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux explore"
+unbind M-$BIND_OPS
+bind   M-$BIND_OPS      display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux ops"
 
-unbind M-$TBIND_OPS
-bind   M-$TBIND_OPS display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux ops"
+unbind M-$BIND_OPEN
+bind   M-$BIND_OPEN     display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux open"
 
-unbind M-$TBIND_SWITCH
-bind   M-$TBIND_SWITCH display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux switch"
+unbind M-$BIND_EXPLORE
+bind   M-$BIND_EXPLORE  display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux explore"
+
+unbind M-$BIND_SWITCH
+bind   M-$BIND_SWITCH   display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux switch"
+
+unbind M-$BIND_SHELL
+bind   M-$BIND_SHELL    display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux shell"
+
+unbind M-$BIND_CYCLE
+bind   M-$BIND_CYCLE    display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux shell"
+
+unbind M-$BIND_LAST
+bind   M-$BIND_LAST     display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux last"
+
 END
 }
 
@@ -748,7 +774,7 @@ opt_wfmux_open () {
 
    files=$(get_proj_files "$proj_dir" | eval "$MENU")
 
-   IFS=${NL%?}
+   IFS="${NL%?}"
    for file in $files ; do
 
       if test "$USE_XDG_OPEN" = true ; then
@@ -767,10 +793,10 @@ opt_wfmux_open () {
          use_tty=${data%,$filetype=*}
          use_tty=${use_tty#tty=}
 
-         cmd=${data#*,$filetype=}
+         cmd="${data#*,$filetype=}"
          cmd=$(printf "$cmd" "$file")
 
-         bin=${cmd%% *}
+         bin="${cmd%% *}"
          command -v "$bin" >/dev/null || {
             tmux_message "Unable to open '$file', $bin: not found"
             continue
@@ -916,7 +942,7 @@ commit () {
       return
    }
 
-   IFS=${NL%?}
+   IFS="${NL%?}"
    for change in $gstatus ; do
       file=${change#* }
       ctype=${change%% *}
@@ -943,12 +969,12 @@ opt_wfmux_acommit () {
 }
 
 git_branches () {
-   IFS=${NL%?}
+   IFS="${NL%?}"
 
    for lbranch in $(git branch --list --no-color) ; do
       test "${lbranch% *}" = '*' && continue
 
-      lbranch=${lbranch#  }
+      lbranch="${lbranch#  }"
       rbranch=$(git rev-parse --abbrev-ref "$lbranch@{u}" 2>/dev/null)
 
       if test $? -eq 0 ; then
@@ -1416,50 +1442,51 @@ run_watcher_cmd () {
    sh=$(get_shell)
    requires "$sh"
 
-   proj_dir="$1"
-   id="$2"
-   wname="$3"
-   wtype="$4"
-   cmd='
-      tmux set-buffer -b '$wname-$id' ""
-      { '"$5"'; } | while read line ; do
-         tmux set-buffer -a -b '$wname-$id' "$(printf "\n$line")"
-      done
-   '
-   dir="$6"
-   efiles="$proj_dir/.wfmux/efiles/$wname.efiles"
+   proj_dir="$1" id="$2" wname="$3" wtype="$4" cmd="$5" dir="$6"
 
    pid_dir="$proj_dir/.wfmux/pids"
    pid_file="$pid_dir/$wname.pid"
-
    mkdir -p "$pid_dir"
 
-   entr_opts='-nps'
+   cfile="$proj_dir/.wfmux/count"
+   cmd='
+      tmux set-buffer -b '$wname-$id' ""
+      { '"$cmd"'; } | while read line ; do
+         tmux set-buffer -ab '$wname-$id' "$(printf "\n$line")"
+      done
+   '
+   touch "$cfile"
+
+   entr_opts='-ns'
    test "$wtype" = 1 && entr_opts="${entr_opts}r"
+
+   efiles="$proj_dir/.wfmux/efiles/$wname.efiles"
 
    export efiles
    export pid_file
    export entr_opts
    export cmd
    if test "$dir" = true ; then
-      entr_opts="${entr_opts}d"
-
       export wname
       export id
+
+      entr_opts="${entr_opts}d"
       watch='
         say $$ >"$pid_file"
 
         while sleep 0.5 ; do
+          test      -e "$efiles"  \
+            || test -s "$efiles"   \
+            || {
+            tmux set-buffer    \
+               -b "$wname-$id"  \
+               "Could not locate files, restart the watcher!"
+            break
+          }
 
-           if ! test -e "$efiles"  \
-           || ! test -s "$efiles" ; then
-              emsg="Could not locate files, restart the watcher!"
-              tmux set-buffer -b "$wname-$id" "$emsg"
-           fi
-
-           entr $entr_opts "$cmd" <"$efiles" >/dev/null 2>&1 &
-           say $! >>"$pid_file"
-           waitpid $!
+          entr $entr_opts "$cmd" <"$efiles" >/dev/null 2>&1 &
+          say $! >>"$pid_file"
+          waitpid $!
         done
       '
    else
@@ -1556,13 +1583,14 @@ opt_wfmux_cwatch () {
 #    PID: The process id of the watcher
 #    STATE:  e (enabled) / d (disabled)
 #    STATUS: r (running) / s (stopped)
+#    TIME: The number of times the command was ran by the watcher.
 #
 #                [PROJECT_NAME]
 #
-#    NAME   |  PID  | STATE | STATUS | COMMAND
-#   --------+-------+-------+--------+----------
-#    test   | 10722 | E     | S      | make test && herbe ...
-#    deploy | 10764 | D     | R      | make deploy ...
+#    NAME   |  PID  | STATE | STATUS | TIMES | COMMAND
+#   --------+-------+-------+--------+-------+-----------------
+#    test   | 10722 | E     | S      | 10    | make test && herbe ...
+#    deploy | 10764 | D     | R      | 4     | make deploy && ...
 #
 opt_wfmux_wtop () {
    tmux_or_die
@@ -1574,9 +1602,15 @@ opt_wfmux_wtop () {
 
    watch_conf="$proj_dir/.wfmux/watch"
 
-   while read line ; do
-      
-   done <"$watch_conf"
+   {
+      while true ; do
+         sleep 0.5
+         while read line ; do
+
+         done <"$watch_conf"
+      done
+   } &
+   
 }
 
 opt_view () {
