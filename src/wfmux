@@ -1442,20 +1442,35 @@ run_watcher_cmd () {
    sh=$(get_shell)
    requires "$sh"
 
-   proj_dir="$1" id="$2" wname="$3" wtype="$4" cmd="$5" dir="$6"
+   proj_dir="$1"
+   id="$2"
+   wname="$3"
+   wtype="$4"
+   cmd="$5"
+   dir="$6"
 
    pid_dir="$proj_dir/.wfmux/pids"
    pid_file="$pid_dir/$wname.pid"
    mkdir -p "$pid_dir"
 
    cfile="$proj_dir/.wfmux/count"
+   touch "$cfile"
+
    cmd='
-      tmux set-buffer -b '$wname-$id' ""
+      c=$(sed -ne "s/^$wname:\([0-9]\|[1-9][0-9]\+\)$/\1/p" "$cfile")
+      if test -n "$c" ; then
+         c=$(($c + 1))
+         sed -i "s/^$wname:.\+$/$wname:$c/" "$cfile"
+      else
+         sed -i "/^$wname:/d" "$cfile"
+         printf "$wname:1\n" >"$cfile"
+      fi
+
+      tmux set-buffer -b "$wname-$id" ""
       { '"$cmd"'; } | while read line ; do
-         tmux set-buffer -ab '$wname-$id' "$(printf "\n$line")"
+         tmux set-buffer -ab "$wname-$id" "$(printf "\n$line")"
       done
    '
-   touch "$cfile"
 
    entr_opts='-ns'
    test "$wtype" = 1 && entr_opts="${entr_opts}r"
@@ -1466,18 +1481,17 @@ run_watcher_cmd () {
    export pid_file
    export entr_opts
    export cmd
-   if test "$dir" = true ; then
-      export wname
-      export id
+   export cfile
+   export wname
+   export id
 
+   if test "$dir" = true ; then
       entr_opts="${entr_opts}d"
       watch='
         say $$ >"$pid_file"
 
         while sleep 0.5 ; do
-          test      -e "$efiles"  \
-            || test -s "$efiles"   \
-            || {
+          test -e "$efiles" || test -s "$efiles" || {
             tmux set-buffer    \
                -b "$wname-$id"  \
                "Could not locate files, restart the watcher!"
@@ -1504,7 +1518,7 @@ run_watcher_cmd () {
 
 list_buffers () {
    id="$1"
-   tmux list-buffers -F '#{buffer_name}' | grep -x "[A-Za-z][-a-zA-Z0-9]\+-$id"
+   tmux list-buffers -F '#{buffer_name}' | grep -x "[A-Za-z][-A-Za-z0-9]\+-$id"
 }
 
 opt_wfmux_vwatch () {
@@ -1581,16 +1595,16 @@ opt_wfmux_cwatch () {
 
 #    NAME: The watcher's name, color: red (disabled), blue (enabled)
 #    PID: The process id of the watcher
-#    STATE:  e (enabled) / d (disabled)
-#    STATUS: r (running) / s (stopped)
+#    STATE:  + (enabled) / - (disabled)
+#    STATUS: R (running) / S (stopped)
 #    TIME: The number of times the command was ran by the watcher.
 #
 #                [PROJECT_NAME]
 #
 #    NAME   |  PID  | STATE | STATUS | TIMES | COMMAND
 #   --------+-------+-------+--------+-------+-----------------
-#    test   | 10722 | E     | S      | 10    | make test && herbe ...
-#    deploy | 10764 | D     | R      | 4     | make deploy && ...
+#    test   | 10722 | +     | S      | 10    | make test && herbe ...
+#    deploy | 10764 | -     | R      | 4     | make deploy && ...
 #
 opt_wfmux_wtop () {
    tmux_or_die
