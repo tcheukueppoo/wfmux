@@ -427,7 +427,7 @@ display_dashboard () {
    kill -KILL $! || :
 
    stty "$init_stty"
-   printf "$ESC_NORMAL_SCREEN$ESC_UNSET_ANSI$ESC_SHOW_CUR"
+   printf "${ESC_NORMAL_SCREEN}${ESC_UNSET_ANSI}${ESC_SHOW_CUR}"
    tput clear
 }
 
@@ -1654,7 +1654,7 @@ wtop_print () {
 
    done <"$watch_conf"
 
-   test -z "$state" && wfmux_die "Couldn't detect a watcher!"
+   test -z "$wname" && wfmux_die "Couldn't detect a watcher!"
 
    # Build the data, unfortunately we are not using any TUI lib
    data_w=0
@@ -1676,7 +1676,7 @@ wtop_print () {
 
    data="${data}${NL%?}${hori_bar}"
 
-   for l in $(seq "$(( $(say "$state" | wc -l) + 1))") ; do
+   for l in $(seq "$(say "$wname" | wc -l)") ; do
 
       _state=$(say "$state" | sed -ne "${l}p")
       _wtype=$(say "$wtype" | sed -ne "${l}p")
@@ -1719,29 +1719,29 @@ wtop_print () {
    data_y="${data_y:-0}"
 
    # Possible senses: (T)OP, (D)OWN, (R)IGHT, and (L)EFT
-   if test "$sense" = T \
+   if test "$sense" = T  \
    && test "$term_h" -lt "$data_h" ; then
 
       data_y=$(( $data_y - 10 ))
       test "$data_y" -lt 0 && data_y=0
 
-   elif test "$sense" = D \
+   elif test "$sense" = D  \
    &&   test "$term_h" -lt "$data_h" ; then
 
       data_y=$(( $data_y + 10 ))
-      test "$data_y" -gt "$data_h" && data_y=$(( $data_h - $term_h ))
-
-   elif test "$sense" = R \
-   &&   test "$term_w" -lt "$data_w" ; then
-
-      data_x=$(( $data_x + 10 ))
-      test "$data_x" -gt "$term_w" && data_x=$(( $data_w - $term_w ))
+      test "$data_y" -gt "$data_h" && data_y="$data_h"
 
    elif test "$sense" = L \
    &&   test "$term_w" -lt "$data_w" ; then
 
       data_x=$(( $data_x - 10 ))
       test "$data_x" -lt 0 && data_x=0
+
+   elif test "$sense" = R  \
+   &&   test "$term_w" -lt "$data_w" ; then
+
+      data_x=$(( $data_x + 10 ))
+      test "$data_x" -gt "$data_w" && data_x="$data_w"
    fi
 
    # Now print the data!
@@ -1759,6 +1759,8 @@ wtop_print () {
    done
 }
 
+
+
 opt_wfmux_wtop () {
    tmux_or_die
 
@@ -1774,7 +1776,9 @@ opt_wfmux_wtop () {
 
    {
       while true ; do
-         sleep 0.5
+         sleep 0.1
+         
+         wtop_print "$watch_conf" "$proj_dir" ""
       done
    } &
 
