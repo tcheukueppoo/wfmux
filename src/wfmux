@@ -94,6 +94,7 @@ open
 explore
 shell
 nsession
+ksession
 switch
 log
 commit
@@ -178,6 +179,7 @@ OPT:
     shell        Launch the shell on a popup tmux pane.
     nsession     Just like \`new' but does not show the already existing
                  tmux session.
+    ksession     Kill a wfmux tmux session.
     switch       Switch between different wfmux tmux sessions.
 
     log          View the git logs of the current project.
@@ -216,7 +218,7 @@ OPT:
     sowatch      Stop a running watcher launched from the watcher
                  registry of the current project.
 
-    vtop         View the characteristics of all registered watchers.
+    wtop         View the characteristics of all registered watchers.
     ops          A wfmux operation to call other wfmux operations whether
                  built-in or gotten via wfmux plugins.
     last         Call the last called wfmux operation.
@@ -364,8 +366,7 @@ END
 }
 
 display_dashboard () {
-
-   # Save initial term setting, will set back after exiting dashboard
+   # Save initial term setting, set back after exiting dashboard!
    init_stty=$(stty -g)
 
    stty -cooked -echo time 0 min 1
@@ -1594,8 +1595,10 @@ opt_wfmux_cwatch () {
    return
 }
 
+#  Fetch and print watchers' state.
+#
 #  NAME: The watcher's name, color: red (disabled), blue (enabled)
-#  PID: The process id of the watcher
+#  PID: The watcher's PID.
 #  STATE:  + (enabled) / - (disabled)
 #  STATUS: R (running) / S (stopped)
 #  TIME: The number of times the command was ran by the watcher
@@ -1604,7 +1607,7 @@ opt_wfmux_cwatch () {
 # --------+-------+-------+--------+-------+-----------------
 #  test   | 10722 | +     | S      | 10    | make test && ...
 #  deploy | 10764 | -     | R      | 4     | make deploy && ...
-wtop_print () {
+wtop_fetch_print () {
    watch_conf="$1"
    proj_dir="$2"
    sense="${3:-}"
@@ -1759,8 +1762,6 @@ wtop_print () {
    done
 }
 
-
-
 opt_wfmux_wtop () {
    tmux_or_die
 
@@ -1771,24 +1772,50 @@ opt_wfmux_wtop () {
 
    watch_conf="$proj_dir/.wfmux/watch"
 
-   stty -cooked -echo time 0 min 1
+   init_stty=$(stty -F /dev/tty -g)
+   stty -F /dev/tty -cooked -echo min 0
+
    printf "${ESC_ALT_SCREEN}${ESC_HIDE_CUR}${ESC_CLEAR_SCREEN}"
 
-   {
-      while true ; do
-         sleep 0.1
-         
-         wtop_print "$watch_conf" "$proj_dir" ""
-      done
-   } &
+   ctrl_z=""
+   escape=""
+   while true ; do
+      stty -F /dev/tty time 10 >/dev/null 2>&1
+      key=$(dd if=/dev/tty count=1 bs=1 2>/dev/null)
 
-   while true; do
-      key=$(dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1)
+      if   test "$key" = 'q' || test "$key" = "$ctrl_z" ; then
+         break
+      elif test "$key" = "$escape" ; then
+         stty -F /dev/tty time 0 >/dev/null 2>&1
+         key=$(dd if=/dev/tty count=3 bs=1 2>/dev/null)
+         case "$key" in
+            '[A'*|'OA'*) key='U' ;;
+            '[B'*|'OB'*) key='D' ;;
+            '[D'*|'OD'*) key='L' ;;
+            '[C'*|'OC'*) key='R' ;;
+            *)           key=''  ;;
+         esac
+      else
+         key=''
+      fi
+
+      stty -F time 0 min 0 >/dev/null 2>&1
+      dd if=/dev/tty bs=512 count=1 >/dev/null 2>&1
+      wtop_fetch_print "$watch_conf" "$proj_dir" "$key"
    done
-   
+
+   printf "${ESC_NORMAL_SCREEN}${ESC_SHOW_CUR}${ESC_UNSET_ANSI}"
+   stty "$init_stty"
+   tput clear
 }
 
-opt_ksession () { :; }
+opt_wfmux_last () {
+   tmux_or_die
+}
+
+opt_ksession () {
+   tmux_or_die
+}
 
 add_plug () {
    name=${1:-}
@@ -1839,3 +1866,4 @@ opt_wfmux_ops () {
 }
 
 main "$@"
+
