@@ -124,7 +124,7 @@ COLOR=4
 SUCCESS="\033[1;3${COLOR}m"
 
 WATCHER='entr'
-FILE_MANAGER='lf'
+FILE_MANAGER='nnn'
 
 WIN_ATT_OPT='20x20+10+20'
 
@@ -148,7 +148,7 @@ USE_XDG_OPEN=false
 
 PROGRAMS=$(cat <<END
 tty=true,text=vim '%s'
-tty=true,directory=lf '%s'
+tty=true,directory=nnn '%s'
 tty=false,video=ffplay -hide_banner -loop 0 '%s'
 tty=true,audio=ffplay  -hide_banner -loop 0 -nodisp '%s'
 tty=false,pdf=zathura '%s'
@@ -158,7 +158,7 @@ END
 
 usage () {
    cat <<END
-Build an awesome dev workflow using tmux, fzf, lf, entr and more.
+Build an awesome dev workflow using tmux, fzf, nnn, entr and more.
 
 Usage: wfmux [ -h | --help ]
        wfmux [ ( -c | --conf ) CONF ] OPT
@@ -566,6 +566,14 @@ new_session () {
 # Create a new wfmux tmux session while in an existing tmux session
 opt_wfmux_nsession () { new_session; }
 
+#
+opt_wfmux_ksession () {
+   tmux_or_die
+
+   sessions=$(tmux list-sessions -F '#{session_name}')
+
+}
+
 # Select a project and open a tmux session
 opt_wfmux_new () {
    input=
@@ -696,6 +704,14 @@ opt_wfmux_switch () {
    fi
 }
 
+last_wfmux_opt () {
+   proj_dir=$1
+   opt=$2
+
+   mkdir -p "$proj_dir/.wfmux"
+   say "$opt" >"$proj_dir/.wfmux/last"
+}
+
 ## Open TUI file manager
 opt_wfmux_explore () {
    tmux_or_die
@@ -704,9 +720,11 @@ opt_wfmux_explore () {
 
    proj_dir=$(get_proj_dir "$(tmux_cur_session)")
 
-   test -z "$proj_dir"     \
-      && die_not_wfmux      \
-      || eval "$FILE_MANAGER" "$proj_dir"
+   test -z "$proj_dir" && die_not_wfmux
+
+   last_wfmux_opt "$proj_dir" explore
+
+   eval "$FILE_MANAGER" "$proj_dir"
 }
 
 # Add some checks since this function is exposed as a wfmux API function.
@@ -808,6 +826,8 @@ opt_wfmux_open () {
 
       run_cmd "$cmd" $use_tty
    done
+
+   last_wfmux_opt "$proj_dir" open
 }
 
 get_shell () {
@@ -871,6 +891,9 @@ opt_wfmux_shell () {
    test -z "$proj_dir" && die_not_wfmux
 
    cd -L "$proj_dir"
+
+   last_wfmux_opt "$proj_dir" shell
+
    exec ${SHELL:-/bin/sh}
 }
 
@@ -907,6 +930,7 @@ opt_wfmux_log () {
 
    is_git_repository || return
 
+   last_wfmux_opt "$proj_dir" log
    git log --graph
 }
 
@@ -918,6 +942,8 @@ commit () {
    tmux_or_die
 
    requires git
+
+   opt=$1; shift
 
    proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
@@ -959,15 +985,16 @@ commit () {
       git add "$file" 2>/dev/null || wfmux_die "'$file' Couldn't be added to the index"
    done
 
+   last_wfmux_opt "$proj_dir" "$opt"
    git commit "$@"
 }
 
 opt_wfmux_commit () {
-   commit || tmux_message "Unable to commit"
+   commit commit || tmux_message "Unable to commit"
 }
 
 opt_wfmux_acommit () {
-   commit --amend || tmux_message "Unable to amend"
+   commit acommit --amend || tmux_message "Unable to amend"
 }
 
 git_branches () {
@@ -1016,6 +1043,8 @@ git_checkout () {
 
    requires git
 
+   opt=$1; shift
+
    proj_dir=$(get_proj_dir "$(tmux_cur_session)")
    test -z "$proj_dir" && die_not_wfmux
 
@@ -1036,6 +1065,8 @@ git_checkout () {
    branch="${branch#? }"
    branch="${branch%% *}"
 
+   last_wfmux_opt "$proj_dir" "$opt"
+
    if test "$btype" = L ; then
       git checkout "$branch"
    else
@@ -1055,8 +1086,8 @@ git_checkout () {
    tmux display-popup -C
 }
 
-opt_wfmux_checkout  () { git_checkout --clean-worktree; }
-opt_wfmux_fcheckout () { git_checkout;                  }
+opt_wfmux_checkout  () { git_checkout checkout --clean-worktree; }
+opt_wfmux_fcheckout () { git_checkout fcheckout;                 }
 
 opt_wfmux_cbranch () {
    tmux_or_die
@@ -1070,6 +1101,8 @@ opt_wfmux_cbranch () {
    cd -L "$proj_dir"
 
    is_git_repository || return
+
+   last_wfmux_opt "$proj_dir" cbranch
 
    tmux_message "$(git branch --show-current)"
    tmux display-popup -C
@@ -1101,38 +1134,11 @@ opt_wfmux_nremote () {
    read url
    test -z "$url" && return
 
+   last_wfmux_opt "$proj_dir" nremote
+
    git remote add "$name" "$url"
    input_2_quit
 }
-
-wfmux_push () {
-   tmux_or_die
-
-   requires git
-
-   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
-   test -z "$proj_dir" && die_not_wfmux
-
-   cd -L "$proj_dir"
-
-   is_git_repository || return
-
-   # TODO: wfmux_push
-   # $GITLAB_TOK_NAME:$my_tok, --set-upstream $my_tok@...
-}
-
-spin () {
-   pos=0 set -- − \\ \| /
-
-   while true ; do 
-      sleep 0.2
-      pos=$(($pos + 1))
-      eval 'printf "\b$'$((($pos % 4) + 1))'"'
-   done
-} 
-
-opt_wfmux_push  () { wfmux_push;         }
-opt_wfmux_fpush () { wfmux_push --force; }
 
 opt_wfmux_awatch () {
    tmux_or_die
@@ -1169,6 +1175,7 @@ opt_wfmux_awatch () {
 
    say "w+,$wtype,[$name]:$cmd${NL%?}$files${NL%?}end" >>"$watch_conf"
 
+   last_wfmux_opt "$proj_dir" awatch
    tmux_message "Added watcher named '$name'"
 }
 
@@ -1249,6 +1256,8 @@ opt_wfmux_mwatch () {
    check_conf $name "$conf"
    del_watcher $name "$watch_conf"
    say "$conf" >>"$watch_conf"
+
+   last_wfmux_opt "$proj_dir" mwatch
 }
 
 del_watcher () {
@@ -1272,10 +1281,13 @@ opt_wfmux_rwatch () {
    test -z "$name" && return
 
    del_watcher "$name" "$watch_conf"
+   last_wfmux_opt "$proj_dir" rwatch
 }
 
 watcher_state_edit () {
-   state="${1:--e}"
+   opt=$1
+
+   state="${2:--e}"
    test "$state" = '-e' && state=+ || state=-
 
    proj_dir=$(get_proj_dir "$(tmux_cur_session)")
@@ -1288,12 +1300,14 @@ watcher_state_edit () {
 
    sed -i "s/^w[-+]\(,[01],\[$name\]:\)/w$state\1/" "$watch_conf"
    grep -q "^w$state,[01],\[$name\]:" "$watch_conf"
+
+   last_wfmux_opt "$proj_dir" "$opt"
 }
 
 opt_wfmux_dwatch () {
    tmux_or_die
 
-   if watcher_state_edit -d ; then
+   if watcher_state_edit dwatch -d ; then
       tmux_message "Watcher successfully disabled"
    else
       wfmux_die "The watcher couldn't be disabled"
@@ -1303,7 +1317,7 @@ opt_wfmux_dwatch () {
 opt_wfmux_ewatch () {
    tmux_or_die
 
-   if watcher_state_edit -e ; then
+   if watcher_state_edit ewatch -e ; then
       tmux_message "Watcher successfully enabled"
    else
       wfmux_die "The watcher couldn't be enabled"
@@ -1338,6 +1352,8 @@ opt_wfmux_sawatch () {
    fi
 
    start_watcher "$proj_dir" "$id" "$name"
+   last_wfmux_opt "$proj_dir" sawatch
+
    tmux display-popup -C
 }
 
@@ -1364,6 +1380,8 @@ opt_wfmux_sowatch () {
       }
       test -d "/proc/$pid" && kill -KILL $pid
    done <"$pid_file"
+
+   last_wfmux_opt "$proj_dir" sowatch
 }
 
 start_watcher () {
@@ -1560,7 +1578,9 @@ opt_wfmux_vwatch () {
                      done
                      read _
                    '
+   last_wfmux_opt "$proj_dir" vwatch
    tmux display-popup -C
+
    return
 }
 
@@ -1591,6 +1611,7 @@ opt_wfmux_cwatch () {
                      done
                    '
 
+   last_wfmux_opt "$proj_dir" cwatch
    tmux display-popup -C
    return
 }
@@ -1773,17 +1794,22 @@ opt_wfmux_wtop () {
    watch_conf="$proj_dir/.wfmux/watch"
 
    init_stty=$(stty -F /dev/tty -g)
-   stty -F /dev/tty -cooked -echo min 0
+   stty -F /dev/tty -cooked -echo min 0 >/dev/null 2>&1
 
    printf "${ESC_ALT_SCREEN}${ESC_HIDE_CUR}${ESC_CLEAR_SCREEN}"
 
-   ctrl_z=""
-   escape=""
+   ctrl_z="$(printf '\32')"
+   escape="$(printf '\33')"
    while true ; do
       stty -F /dev/tty time 10 >/dev/null 2>&1
       key=$(dd if=/dev/tty count=1 bs=1 2>/dev/null)
 
-      if   test "$key" = 'q' || test "$key" = "$ctrl_z" ; then
+      if [ -z "$key" ] ; then
+         wtop_fetch_print "$watch_conf" "$proj_dir" "$key"
+         continue
+      fi
+
+      if test "$key" = 'q' || test "$key" = "$ctrl_z" ; then
          break
       elif test "$key" = "$escape" ; then
          stty -F /dev/tty time 0 >/dev/null 2>&1
@@ -1795,26 +1821,41 @@ opt_wfmux_wtop () {
             '[C'*|'OC'*) key='R' ;;
             *)           key=''  ;;
          esac
-      else
-         key=''
       fi
 
-      stty -F time 0 min 0 >/dev/null 2>&1
+      stty -F /dev/tty time 0 min 0 >/dev/null 2>&1
       dd if=/dev/tty bs=512 count=1 >/dev/null 2>&1
+
       wtop_fetch_print "$watch_conf" "$proj_dir" "$key"
    done
 
    printf "${ESC_NORMAL_SCREEN}${ESC_SHOW_CUR}${ESC_UNSET_ANSI}"
    stty "$init_stty"
-   tput clear
+   last_wfmux_opt "$proj_dir" wtop
 }
 
 opt_wfmux_last () {
    tmux_or_die
-}
 
-opt_ksession () {
-   tmux_or_die
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
+   test -z "$proj_dir" && die_not_wfmux
+
+   cd -L "$proj_dir"
+
+   last_file="$proj_dir/.wfmux/last"
+   if test -s "$last_file" ; then
+      read opt <"$last_file"
+
+      opt="opt_wfmux_$opt"
+      cmd_val=$(command -v "$opt")
+      if test -z "$cmd_val" ; then
+         tmux_message "$opt: undefined wfmux operation"
+      elif test "$cmd_val" != "$opt" ; then
+         tmux_message "$opt: wfmux operation should be a function!"
+      else
+         eval "$opt"
+      fi
+   fi
 }
 
 add_plug () {
