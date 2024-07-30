@@ -396,14 +396,14 @@ display_dashboard () {
 
          wfmux_h=$(expr "$wfmux_h" + $(dashboard_msg | wc -l))
 
-         x=$((($term_w - $wfmux_w) / 2))
-         y=$((($term_h - $wfmux_h) / 2))
+         x=$(( ($term_w - $wfmux_w) / 2 ))
+         y=$(( ($term_h - $wfmux_h) / 2 ))
 
          msg_w=$(dashboard_msg | awk "$awk_max")
          if test $msg_w -gt $wfmux_w ; then
-            msg_x=$(($x - ($msg_w - $wfmux_w) / 2))
+            msg_x=$(( $x - ($msg_w - $wfmux_w) / 2 ))
          else
-            msg_x=$(($x + ($wfmux_w - $msg_w) / 2))
+            msg_x=$(( $x + ($wfmux_w - $msg_w) / 2 ))
          fi
 
          printf "${ESC_CLEAR_SCREEN}${SUCCESS}${ESC_BOLD}"
@@ -411,12 +411,12 @@ display_dashboard () {
          IFS=${NL%?}
          for line in $(eval 'printf "$WFMUX_'$_size'"') ; do
             tty_print $y $x "$line"
-            y=$(($y + 1))
+            y=$(( $y + 1 ))
          done
 
          printf "$ESC_UNSET_ANSI"
          for line in $(dashboard_msg) ; do
-            y=$(($y + 1))
+            y=$(( $y + 1 ))
             tty_print "$y" "$msg_x" "$line"
          done
       done
@@ -505,7 +505,7 @@ get_proj_list () {
          printf "[%d]:%s/%s\n" $line "$sdir" "$file"
       done
 
-      line=$(($line + 1))
+      line=$(( $line + 1 ))
    done
 }
 
@@ -566,12 +566,54 @@ new_session () {
 # Create a new wfmux tmux session while in an existing tmux session
 opt_wfmux_nsession () { new_session; }
 
-#
+# Kill a wfmux tmux session
 opt_wfmux_ksession () {
    tmux_or_die
 
-   sessions=$(tmux list-sessions -F '#{session_name}')
+   proj_dirs=''
+   wfmux_sessions=''
 
+   IFS=${NL%?}
+   for session in $(tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k2,2n) ; do
+      session=${session%:*}
+      proj_dir=$(get_proj_dir "$session")
+
+      test -z "$proj_dir" && continue
+
+      proj_dirs="${proj_dirs}${proj_dirs:+$IFS}${proj_dir}"
+      wfmux_sessions="${wfmux_sessions}${wfmux_sessions:+$IFS}${session}"
+   done
+
+   if test -z "$wfmux_sessions" ; then
+      wfmux_die 'No wfmux tmux session was detected'
+   fi
+
+   session=$(say "$wfmux_sessions" | eval "$MENU")
+   test -z "$session" && return
+
+   n=$(say "$wfmux_sessions"   | sed -ne "/^$session$/=")
+   proj_dir=$(say "$proj_dirs" | sed -ne "${n}p")
+
+   watch_conf="$proj_dir/.wfmux/watch"
+
+   # First stop all its watchers.
+   IFS=${NL%?}
+   for name in $(watchers "$watch_conf") ; do
+      pid_file="$proj_dir/.wfmux/pids/$name.pid"
+      stop_watcher "$name" "$pid_file"
+   done
+
+   # Switch to the most recently accessed wfmux tmux session before killing this one.
+   if test "$(cur_session)" = "$session" \
+   && test $(say "$wfmux_sessions" | wc -l) -gt 1 ; then
+      test $n -eq 1         \
+         && n=$(( $n + 1 ))  \
+         || n=$(( $n - 1 ))
+
+      tmux switch-client -c "$(cur_pty)" -t "$target_session"
+   fi
+
+   tmux kill-session -t "$session"
 }
 
 # Select a project and open a tmux session
@@ -1179,14 +1221,18 @@ opt_wfmux_awatch () {
    tmux_message "Added watcher named '$name'"
 }
 
+watchers () {
+   sed -ne 's/^w[-+],[01],\[\([^]]\+\)\]:.\+$/\1/p' "$1"
+}
+
 select_watcher () {
-   names=''
    watch_conf="$1"
+   names=''
 
    test -f "$watch_conf" || rm -f "$watch_conf"
 
    touch "$watch_conf"
-   names=$(sed -ne 's/^w[-+],[01],\[\([^]]\+\)\]:.\+$/\1/p' "$watch_conf")
+   names=$(watchers "$watch_conf")
 
    if test -z "$names" ; then
       wfmux_die 'There are no configured watchers'
@@ -1369,10 +1415,17 @@ opt_wfmux_sowatch () {
    test -z "$name" && return
 
    pid_file="$proj_dir/.wfmux/pids/$name.pid"
-
    if ! test -s "$pid_file" ; then
       wfmux_die "watcher($name): Unable to find the pid of the watcher"
    fi
+
+   stop_watcher "$name" "$pid_file"
+   last_wfmux_opt "$proj_dir" sowatch
+}
+
+stop_watcher () {
+   name=$1
+   pid_file=$2
 
    while read pid ; do
       expr "$pid" : "\($NUM_RE\)$" >/dev/null || {
@@ -1380,8 +1433,6 @@ opt_wfmux_sowatch () {
       }
       test -d "/proc/$pid" && kill -KILL $pid
    done <"$pid_file"
-
-   last_wfmux_opt "$proj_dir" sowatch
 }
 
 start_watcher () {
@@ -1405,7 +1456,7 @@ start_watcher () {
    state=watcher
 
    while read line ; do
-      n=$(($n + 1))
+      n=$(( $n + 1 ))
 
       if expr "$line" : '[[:space:]]*$' ; then
          continue
@@ -1479,7 +1530,7 @@ run_watcher_cmd () {
    cmd='
       c=$(sed -ne "s/^$wname:\([0-9]\|[1-9][0-9]\+\)$/\1/p" "$cfile")
       if test -n "$c" ; then
-         c=$(($c + 1))
+         c=$(( $c + 1 ))
          sed -i "s/^$wname:.\+$/$wname:$c/" "$cfile"
       else
          sed -i "/^$wname:/d" "$cfile"
@@ -1572,7 +1623,7 @@ opt_wfmux_vwatch () {
 
                         if test "$len" -gt "$plen" ; then
                            pval="$val"
-                           printf "%s\n" "$val" | tail -n"$(($len - $plen))"
+                           printf "%s\n" "$val" | tail -n"$(( $len - $plen ))"
                            plen="$len"
                         fi
                      done
@@ -1695,7 +1746,7 @@ wtop_fetch_print () {
    hori_bar='' l=0
    while test $l -ne $data_w ; do
       hori_bar="${hori_bar}_"
-      l=$(($l + 1))
+      l=$(( $l + 1 ))
    done
 
    data="${data}${NL%?}${hori_bar}"
@@ -1843,18 +1894,18 @@ opt_wfmux_last () {
    cd -L "$proj_dir"
 
    last_file="$proj_dir/.wfmux/last"
-   if test -s "$last_file" ; then
-      read opt <"$last_file"
+   test -s "$last_file" || wfmux_die 'Unknown last wfmux operation'
 
-      opt="opt_wfmux_$opt"
-      cmd_val=$(command -v "$opt")
-      if test -z "$cmd_val" ; then
-         tmux_message "$opt: undefined wfmux operation"
-      elif test "$cmd_val" != "$opt" ; then
-         tmux_message "$opt: wfmux operation should be a function!"
-      else
-         eval "$opt"
-      fi
+   read opt <"$last_file"
+   opt="opt_wfmux_$opt"
+
+   cmd_val=$(command -v "$opt")
+   if test -z "$cmd_val" ; then
+      tmux_message "$opt: undefined wfmux operation"
+   elif test "$cmd_val" != "$opt" ; then
+      tmux_message "$opt: wfmux operation should be a function!"
+   else
+      eval "$opt"
    fi
 }
 
