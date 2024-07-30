@@ -132,9 +132,9 @@ BIND_OPS='i'
 BIND_OPEN='Enter'
 BIND_EXPLORE='BSpace'
 BIND_SWITCH='w'
-BIND_SHELL='s'
-BIND_CYCLE='c'
-BIND_LAST='w'
+BIND_SHELL='r'
+BIND_CYCLE='a'
+BIND_LAST='p'
 
 MENU='fzf --multi --margin=25%'
 
@@ -225,7 +225,7 @@ OPT:
 
 END
 
-   exit "$1"
+   exit $1
 }
 
 die () {
@@ -261,7 +261,7 @@ main () {
             test -n "${TMUX:-}" && tmux_message "$emsg"
             die "$emsg"
          }
-         opt_name="$1"
+         opt_name=$1
          ;;
       esac
       shift
@@ -308,7 +308,7 @@ check_conf_vars () {
       || test "$USE_XDG_OPEN" = false  \
       || v_err USE_XDG_OPEN
 
-   # MENU is used by most wfmux opt, so check it here!
+   # MENU is used by most wfmux opts, so check it here!
    menu="${MENU%% *}"
    command -v "$menu" >/dev/null || die_conf "var(MENU): '$menu': Command not found"
 
@@ -369,67 +369,65 @@ display_dashboard () {
    # Save initial term setting, set back after exiting dashboard!
    init_stty=$(stty -g)
 
-   stty -cooked -echo time 0 min 1
+   stty -cooked -echo min 0
    printf "${ESC_ALT_SCREEN}${ESC_HIDE_CUR}${ESC_CLEAR_SCREEN}"
 
-   {
-      term_h= term_w=
-      while true ; do
+   key=''
+   term_h=''
+   term_w=''
+   while true ; do
 
-         new_size=$(stty -F /dev/tty size)
-         test "$new_size" = "$term_h $term_w" && {
-            sleep 1
-            continue
-         }
+      new_size=$(stty -F /dev/tty size)
+      test "$new_size" = "$term_h $term_w" && {
+         stty time 10 min 0 >/dev/null 2>&1
 
-         term_h="${new_size%% *}"
-         term_w="${new_size##* }"
-         if   test "$term_h" -lt 32 || test "$term_w" -lt 97 ; then
-            _size=SS
-         elif test "$term_h" -lt 43 || test "$term_w" -lt 155 ; then
-            _size=MS
-         else
-            _size=LS
-         fi
-         eval 'wfmux_h=$(printf "$WFMUX_'$_size'" | wc -l)
-               wfmux_w=$(printf "$WFMUX_'$_size'" | awk_max)'
+         # Get key from the standard input
+         key=$(dd if=/dev/tty count=1 bs=1 2>/dev/null)
+         test -n "$key" && break
+         continue
+      }
 
-         wfmux_h=$(expr "$wfmux_h" + $(dashboard_msg | wc -l))
+      term_h="${new_size%% *}"
+      term_w="${new_size##* }"
+      if   test "$term_h" -lt 32 || test "$term_w" -lt 97 ; then
+         _size=SS
+      elif test "$term_h" -lt 43 || test "$term_w" -lt 155 ; then
+         _size=MS
+      else
+         _size=LS
+      fi
+      eval 'wfmux_h=$(printf "$WFMUX_'$_size'" | wc -l)
+            wfmux_w=$(printf "$WFMUX_'$_size'" | awk_max)'
 
-         x=$(( ($term_w - $wfmux_w) / 2 ))
-         y=$(( ($term_h - $wfmux_h) / 2 ))
+      wfmux_h=$(expr "$wfmux_h" + $(dashboard_msg | wc -l))
 
-         msg_w=$(dashboard_msg | awk "$awk_max")
-         if test $msg_w -gt $wfmux_w ; then
-            msg_x=$(( $x - ($msg_w - $wfmux_w) / 2 ))
-         else
-            msg_x=$(( $x + ($wfmux_w - $msg_w) / 2 ))
-         fi
+      x=$(( ($term_w - $wfmux_w) / 2 ))
+      y=$(( ($term_h - $wfmux_h) / 2 ))
 
-         printf "${ESC_CLEAR_SCREEN}${SUCCESS}${ESC_BOLD}"
+      msg_w=$(dashboard_msg | awk_max)
+      if test $msg_w -gt $wfmux_w ; then
+         msg_x=$(( $x - ($msg_w - $wfmux_w) / 2 ))
+      else
+         msg_x=$(( $x + ($wfmux_w - $msg_w) / 2 ))
+      fi
 
-         IFS=${NL%?}
-         for line in $(eval 'printf "$WFMUX_'$_size'"') ; do
-            tty_print $y $x "$line"
-            y=$(( $y + 1 ))
-         done
+      printf "${ESC_CLEAR_SCREEN}${SUCCESS}${ESC_BOLD}"
 
-         printf "$ESC_UNSET_ANSI"
-         for line in $(dashboard_msg) ; do
-            y=$(( $y + 1 ))
-            tty_print "$y" "$msg_x" "$line"
-         done
+      IFS=${NL%?}
+      for line in $(eval 'printf "$WFMUX_'$_size'"') ; do
+         tty_print $y $x "$line"
+         y=$(( $y + 1 ))
       done
-   } &
 
-   # Get key from the standard input
-   dd if=/dev/tty count=1 bs=1 >/dev/null 2>&1
-
-   kill -KILL $! || :
+      printf "$ESC_UNSET_ANSI"
+      for line in $(dashboard_msg) ; do
+         y=$(( $y + 1 ))
+         tty_print "$y" "$msg_x" "$line"
+      done
+   done
 
    stty "$init_stty"
    printf "${ESC_NORMAL_SCREEN}${ESC_UNSET_ANSI}${ESC_SHOW_CUR}"
-   tput clear
 }
 
 tmux_cur_session () {
@@ -644,8 +642,8 @@ opt_wfmux_new () {
 }
 
 set_whxy () {
-   name="$1"
-   win_att="$2"
+   name=$1
+   win_att=$2
 
    num_re="$NUM_RE"
    com_re='C\|P\|M\|W'
@@ -681,11 +679,11 @@ bind   M-$BIND_SWITCH   display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfm
 unbind M-$BIND_SHELL
 bind   M-$BIND_SHELL    display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux shell"
 
-unbind M-$BIND_CYCLE
-bind   M-$BIND_CYCLE    display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux shell"
-
 unbind M-$BIND_LAST
 bind   M-$BIND_LAST     display-popup -w $w -h $h -x $x -y $y -E "$LOCAL_BIN/wfmux last"
+
+unbind M-$BIND_CYCLE
+bind   M-$BIND_CYCLE    run-shell "$LOCAL_BIN/wfmux cwatch"
 
 END
 }
@@ -700,7 +698,7 @@ each () {
 }
 
 get_proj_dir () {
-   session="$1"
+   session=$1
    proj_name=''
 
    proj_name=$(say "$session" | sed -ne 's/^\([^-]\+\)-.\{6\}$/\1/p')
@@ -716,7 +714,7 @@ get_proj_dir () {
             && cd -L "$proj_dir"     \
             || continue
 
-         test -f '.wfmux/name'                        \
+         test -f .wfmux/name                          \
             && test "$session" = "$(cat .wfmux/name)"  \
             && say "$proj_dir"
       done
@@ -724,7 +722,7 @@ get_proj_dir () {
 }
 
 tmux_or_die () {
-   test -n "${TMUX:-}" || die "Wfmux must run in a tmux session"
+   test -n "${TMUX:-}" || die 'Wfmux must run in a tmux session'
 }
 
 opt_wfmux_switch () {
@@ -801,7 +799,7 @@ get_proj_files () {
 }
 
 get_filetype () {
-   file="$1"
+   file=$1
 
    if command -v xdg-mime >/dev/null ; then
       filetype=$(xdg-mime query filetype "$file")
@@ -885,8 +883,8 @@ get_shell () {
 }
 
 run_cmd () {
-   cmd="$1"
-   use_tty="$2"
+   cmd=$1
+   use_tty=$2
 
    test "$use_tty" = true || {
       { trap '' HUP; eval "$cmd"; } &
@@ -973,6 +971,7 @@ opt_wfmux_log () {
    is_git_repository || return
 
    last_wfmux_opt "$proj_dir" log
+
    git log --graph
 }
 
@@ -1059,7 +1058,7 @@ git_branches () {
 }
 
 new_branch () {
-   rbranch="$1"
+   rbranch=$1
    lbranch="${rbranch##*/}"
 
    git show-ref --verify --quiet "refs/heads/$lbranch" && {
@@ -1226,7 +1225,7 @@ watchers () {
 }
 
 select_watcher () {
-   watch_conf="$1"
+   watch_conf=$1
    names=''
 
    test -f "$watch_conf" || rm -f "$watch_conf"
@@ -1242,8 +1241,8 @@ select_watcher () {
 }
 
 check_conf () {
-   name="$1"
-   conf="$2"
+   name=$1
+   conf=$2
 
    e="
       1 { s/^w[-+],[01],\[$name\]:.*[:a-zA-Z].*$/1/p; b }
@@ -1307,7 +1306,7 @@ opt_wfmux_mwatch () {
 }
 
 del_watcher () {
-   name="$1"
+   name=$1
    watch_conf="$2"
 
    sed -i "/^w[-+],[01],\[$name\]:/,/^end$/d" "$watch_conf"
@@ -1333,7 +1332,7 @@ opt_wfmux_rwatch () {
 watcher_state_edit () {
    opt=$1
 
-   state="${2:--e}"
+   state=${2:--e}
    test "$state" = '-e' && state=+ || state=-
 
    proj_dir=$(get_proj_dir "$(tmux_cur_session)")
@@ -1410,6 +1409,7 @@ opt_wfmux_sowatch () {
    test -z "$proj_dir" && die_not_wfmux
 
    watch_conf="$proj_dir/.wfmux/watch"
+   count_file="$proj_dir/.wfmux/count"
 
    name=$(select_watcher "$watch_conf")
    test -z "$name" && return
@@ -1418,6 +1418,8 @@ opt_wfmux_sowatch () {
    if ! test -s "$pid_file" ; then
       wfmux_die "watcher($name): Unable to find the pid of the watcher"
    fi
+
+   #sed -i '' "$count_file"
 
    stop_watcher "$name" "$pid_file"
    last_wfmux_opt "$proj_dir" sowatch
@@ -1436,9 +1438,9 @@ stop_watcher () {
 }
 
 start_watcher () {
-   proj_dir="$1"
-   id="$2"
-   name="${3:-}"
+   proj_dir=$1
+   id=$2
+   name=${3:-}
    
    watch_conf="$proj_dir/.wfmux/watch"
    test -s "$watch_conf" || return
@@ -1478,7 +1480,7 @@ start_watcher () {
          continue
 
       elif test $state = files \
-      &&   expr "$line" : '\.\($|/.*\)' ; then
+      &&   expr "$line" : '\.\($\|/.*\)' ; then
 
          file=$(say "$line" | sed -e 's/[[:space:]]*$//;s/ /\\ /g')
 
@@ -1493,12 +1495,12 @@ start_watcher () {
       &&   test $state = files ; then
 
          state=watcher
-         run_watcher_cmd "$proj_dir"  \
-                         "$id"         \
-                         "$wname"       \
-                         "$wtype"        \
-                         "$cmd"           \
-                         "$dir"
+         run_watcher "$proj_dir"  \
+                     "$id"         \
+                     "$wname"       \
+                     "$wtype"        \
+                     "$cmd"           \
+                     "$dir"
       else
          die_conf "('$watch_conf'): Failed to parse config at line $n"
       fi
@@ -1509,32 +1511,32 @@ start_watcher () {
    fi
 }
 
-run_watcher_cmd () {
+run_watcher () {
    sh=$(get_shell)
    requires "$sh"
 
-   proj_dir="$1"
-   id="$2"
-   wname="$3"
-   wtype="$4"
-   cmd="$5"
-   dir="$6"
+   proj_dir=$1
+   id=$2
+   wname=$3
+   wtype=$4
+   cmd=$5
+   dir=$6
 
    pid_dir="$proj_dir/.wfmux/pids"
    pid_file="$pid_dir/$wname.pid"
    mkdir -p "$pid_dir"
 
-   cfile="$proj_dir/.wfmux/count"
-   touch "$cfile"
+   count_file="$proj_dir/.wfmux/count"
+   touch "$count_file"
 
    cmd='
-      c=$(sed -ne "s/^$wname:\([0-9]\|[1-9][0-9]\+\)$/\1/p" "$cfile")
+      c=$(sed -ne "s/^$wname:\([0-9]\|[1-9][0-9]\+\)$/\1/p" "$count_file")
       if test -n "$c" ; then
          c=$(( $c + 1 ))
-         sed -i "s/^$wname:.\+$/$wname:$c/" "$cfile"
+         sed -i "s/^$wname:.\+$/$wname:$c/" "$count_file"
       else
-         sed -i "/^$wname:/d" "$cfile"
-         printf "$wname:1\n" >"$cfile"
+         sed -i "/^$wname:/d" "$count_file"
+         printf "$wname:1\n" >"$count_file"
       fi
 
       tmux set-buffer -b "$wname-$id" ""
@@ -1552,7 +1554,7 @@ run_watcher_cmd () {
    export pid_file
    export entr_opts
    export cmd
-   export cfile
+   export count_file
    export wname
    export id
 
@@ -1588,7 +1590,7 @@ run_watcher_cmd () {
 }
 
 list_buffers () {
-   id="$1"
+   id=$1
    tmux list-buffers -F '#{buffer_name}' | grep -x "[A-Za-z][-A-Za-z0-9]\+-$id"
 }
 
@@ -1602,7 +1604,7 @@ opt_wfmux_vwatch () {
 
    cd -L "$proj_dir"
 
-   id="${session##*-}"
+   id=${session##*-}
    buf_list=$(list_buffers "$id")
 
    test -z "$buf_list" && {
@@ -1635,6 +1637,7 @@ opt_wfmux_vwatch () {
    return
 }
 
+# Cycle through the stderr & stdout of every running watcher
 opt_wfmux_cwatch () {
    tmux_or_die
 
@@ -1662,7 +1665,6 @@ opt_wfmux_cwatch () {
                      done
                    '
 
-   last_wfmux_opt "$proj_dir" cwatch
    tmux display-popup -C
    return
 }
@@ -1680,11 +1682,11 @@ opt_wfmux_cwatch () {
 #  test   | 10722 | +     | S      | 10    | make test && ...
 #  deploy | 10764 | -     | R      | 4     | make deploy && ...
 wtop_fetch_print () {
-   watch_conf="$1"
-   proj_dir="$2"
-   sense="${3:-}"
+   watch_conf=$1
+   proj_dir=$2
+   sense=${3:-}
 
-   cfile="$proj_dir/.wfmux/count"
+   count_file="$proj_dir/.wfmux/count"
 
    wname_o=0
    count_o=0
@@ -1704,7 +1706,7 @@ wtop_fetch_print () {
       _cmd="${line#w?,?,\[*\]:}"
 
       # Get the number of times the watcher ran the command
-      _count=$(sed -ne "s/^$_wname:\([0-9]\|[1-9][0-9]\+\)$/\1/p" "$cfile")
+      _count=$(sed -ne "s/^$_wname:\([0-9]\|[1-9][0-9]\+\)$/\1/p" "$count_file")
       test -z "$_count" && _count='N/A'
 
       # Get the PID of the watcher if it's running
@@ -1958,4 +1960,3 @@ opt_wfmux_ops () {
 }
 
 main "$@"
-
