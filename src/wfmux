@@ -547,16 +547,18 @@ new_session () {
 
    if [ -z "${TMUX:-}" ] ; then
       tmux has-session -t "$session" 2>/dev/null || {
-         id="${session##*-}"
+         id=${session##*-}
 
-         start_watcher "$proj_dir" "$id"
          display_dashboard
          tmux new-session -s "$session" -d
-      }
+         start_watcher "$proj_dir" "$id"
+     }
       exec tmux attach-session -t "$session"
    else
       pty=$(tmux_cur_pty)
+
       tmux has-session -t "$session" 2>/dev/null || tmux new-session -s "$session" -d
+      start_watcher "$proj_dir" "$id"
       exec tmux switch-client -c "$pty" -t "$session"
    fi
 }
@@ -616,8 +618,8 @@ opt_wfmux_ksession () {
 
 # Select a project and open a tmux session
 opt_wfmux_new () {
-   input=
-   session=
+   input=''
+   session=''
 
    if tmux list-sessions >/dev/null 2>&1 ; then
       printf "Choose an existing session to attach\n\n"
@@ -728,7 +730,7 @@ tmux_or_die () {
 opt_wfmux_switch () {
    tmux_or_die
 
-   wfmux_sessions=
+   wfmux_sessions=''
 
    IFS=${NL%?}
    for session in $(tmux list-sessions -F '#S') ; do
@@ -1059,7 +1061,7 @@ git_branches () {
 
 new_branch () {
    rbranch=$1
-   lbranch="${rbranch##*/}"
+   lbranch=${rbranch##*/}
 
    git show-ref --verify --quiet "refs/heads/$lbranch" && {
 
@@ -1307,7 +1309,7 @@ opt_wfmux_mwatch () {
 
 del_watcher () {
    name=$1
-   watch_conf="$2"
+   watch_conf=$2
 
    sed -i "/^w[-+],[01],\[$name\]:/,/^end$/d" "$watch_conf"
 }
@@ -1375,7 +1377,7 @@ opt_wfmux_sawatch () {
    command -v "$WATCHER" >/dev/null || die_conf "$WATCHER: command not found"
 
    session=$(tmux_cur_session)
-   id="${session##*-}"
+   id=${session##*-}
 
    proj_dir=$(get_proj_dir "$session")
    test -z "$proj_dir" && die_not_wfmux
@@ -1419,7 +1421,7 @@ opt_wfmux_sowatch () {
       wfmux_die "watcher($name): Unable to find the pid of the watcher"
    fi
 
-   #sed -i '' "$count_file"
+   sed -i "/^$name:/d" "$count_file"
 
    stop_watcher "$name" "$pid_file"
    last_wfmux_opt "$proj_dir" sowatch
@@ -1533,13 +1535,13 @@ run_watcher () {
       c=$(sed -ne "s/^$wname:\([0-9]\|[1-9][0-9]\+\)$/\1/p" "$count_file")
       if test -n "$c" ; then
          c=$(( $c + 1 ))
-         sed -i "s/^$wname:.\+$/$wname:$c/" "$count_file"
+         sed -i "s/^$wname:[0-9]\+$/$wname:$c/" "$count_file"
       else
          sed -i "/^$wname:/d" "$count_file"
-         printf "$wname:1\n" >"$count_file"
+         printf "%s:1\n" "$wname" >"$count_file"
       fi
 
-      tmux set-buffer -b "$wname-$id" ""
+      tmux set-buffer -b "$wname-$id" "$(printf "\033[34mN_TIMES\033[0m: $c")"
       { '"$cmd"'; } | while read line ; do
          tmux set-buffer -ab "$wname-$id" "$(printf "\n$line")"
       done
@@ -1565,9 +1567,7 @@ run_watcher () {
 
         while sleep 0.5 ; do
           test -e "$efiles" || test -s "$efiles" || {
-            tmux set-buffer    \
-               -b "$wname-$id"  \
-               "Could not locate files, restart the watcher!"
+            tmux set-buffer -b "$wname-$id" "Unable to locate files, restart the watcher!"
             break
           }
 
@@ -1648,7 +1648,7 @@ opt_wfmux_cwatch () {
 
    cd -L "$proj_dir"
 
-   id="${session##*-}"
+   id=${session##*-}
    buf_list=$(list_buffers "$id")
 
    test -z "$buf_list" && {
@@ -1857,7 +1857,7 @@ opt_wfmux_wtop () {
       stty -F /dev/tty time 10 >/dev/null 2>&1
       key=$(dd if=/dev/tty count=1 bs=1 2>/dev/null)
 
-      if [ -z "$key" ] ; then
+      if test -z "$key" ; then
          wtop_fetch_print "$watch_conf" "$proj_dir" "$key"
          continue
       fi
