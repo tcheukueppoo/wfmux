@@ -747,7 +747,10 @@ opt_wfmux_switch () {
 }
 
 last_wfmux_opt () {
+
+   proj_dir=$1
    opt=$2
+
    say "$opt" >"$proj_dir/.wfmux/last"
 }
 
@@ -761,7 +764,7 @@ opt_wfmux_explore () {
 
    test -z "$proj_dir" && die_not_wfmux
 
-   last_wfmux_opt explore
+   last_wfmux_opt "$proj_dir" explore
 
    eval "$FILE_MANAGER" "$proj_dir"
 }
@@ -866,7 +869,7 @@ opt_wfmux_open () {
       run_cmd "$cmd" $use_tty
    done
 
-   last_wfmux_opt open
+   last_wfmux_opt "$proj_dir" open
 }
 
 get_shell () {
@@ -931,7 +934,7 @@ opt_wfmux_shell () {
 
    cd -L "$proj_dir"
 
-   last_wfmux_opt shell
+   last_wfmux_opt "$proj_dir" shell
    exec ${SHELL:-/bin/sh}
 }
 
@@ -968,7 +971,7 @@ opt_wfmux_log () {
 
    is_git_repository || return
 
-   last_wfmux_opt log
+   last_wfmux_opt "$proj_dir" log
    git log --graph
 }
 
@@ -993,7 +996,7 @@ commit () {
    export EDITOR="${EDITOR:-vim}"
    command -v "$EDITOR" >/dev/null || wfmux_die "$EDITOR: Command not found"
 
-   gstatus=$(git_status | sed -e 's/^ /-/;s/^??/-U/;s/^\(.\)  /\1 /')
+   gstatus=$(git_status | sed -e 's/^ /-/;s/^??/-U/;s/^\(.\) /\1-/')
 
    test -z "$gstatus"  \
       && test $# -eq 0  \
@@ -1008,12 +1011,14 @@ commit () {
       return
    }
 
-   IFS="${NL%?}"
+   IFS=${NL%?}
    for change in $gstatus ; do
       file=${change#* }
       ctype=${change%% *}
 
-      test "${ctype%?}" != '-' && continue
+      test "${ctype%?}" != '-'      \
+         && test "${ctype#?}" = '-'  \
+         && continue
 
       ctype=${ctype#?}
       test "$ctype" != M       \
@@ -1023,7 +1028,7 @@ commit () {
       git add "$file" 2>/dev/null || wfmux_die "'$file' Couldn't be added to the index"
    done
 
-   last_wfmux_opt "$opt"
+   last_wfmux_opt "$proj_dir" "$opt"
    git commit "$@"
 }
 
@@ -1103,7 +1108,7 @@ git_checkout () {
    branch="${branch#? }"
    branch="${branch%% *}"
 
-   last_wfmux_opt "$opt"
+   last_wfmux_opt "$proj_dir" "$opt"
 
    if test "$btype" = L ; then
       git checkout "$branch"
@@ -1140,7 +1145,7 @@ opt_wfmux_cbranch () {
 
    is_git_repository || return
 
-   last_wfmux_opt cbranch
+   last_wfmux_opt "$proj_dir" cbranch
 
    tmux_message "$(git branch --show-current)"
    tmux display-popup -C
@@ -1172,7 +1177,7 @@ opt_wfmux_nremote () {
    read url
    test -z "$url" && return
 
-   last_wfmux_opt nremote
+   last_wfmux_opt "$proj_dir" nremote
 
    git remote add "$name" "$url"
    input_2_quit
@@ -1213,7 +1218,7 @@ opt_wfmux_awatch () {
 
    say "w+,$wtype,[$name]:$cmd${NL%?}$files${NL%?}end" >>"$watch_conf"
 
-   last_wfmux_opt awatch
+   last_wfmux_opt "$proj_dir" awatch
    tmux_message "Added watcher named '$name'"
 }
 
@@ -1299,7 +1304,7 @@ opt_wfmux_mwatch () {
    del_watcher $name "$watch_conf"
    say "$conf" >>"$watch_conf"
 
-   last_wfmux_opt mwatch
+   last_wfmux_opt "$proj_dir" mwatch
 }
 
 del_watcher () {
@@ -1323,7 +1328,7 @@ opt_wfmux_rwatch () {
    test -z "$name" && return
 
    del_watcher "$name" "$watch_conf"
-   last_wfmux_opt rwatch
+   last_wfmux_opt "$proj_dir" rwatch
 }
 
 watcher_state_edit () {
@@ -1343,7 +1348,7 @@ watcher_state_edit () {
    sed -i "s/^w[-+]\(,[01],\[$name\]:\)/w$state\1/" "$watch_conf"
    grep -q "^w$state,[01],\[$name\]:" "$watch_conf"
 
-   last_wfmux_opt "$opt"
+   last_wfmux_opt "$proj_dir" "$opt"
 }
 
 opt_wfmux_dwatch () {
@@ -1394,7 +1399,7 @@ opt_wfmux_sawatch () {
    fi
 
    start_watcher "$proj_dir" "$id" "$name"
-   last_wfmux_opt sawatch
+   last_wfmux_opt "$proj_dir" sawatch
 
    tmux display-popup -C
 }
@@ -1416,10 +1421,8 @@ opt_wfmux_sowatch () {
       wfmux_die "watcher($name): Unable to find the pid of the watcher"
    fi
 
-   sed -i "/^$name:/d" "$count_file"
-
    stop_watcher "$name" "$pid_file"
-   last_wfmux_opt sowatch
+   last_wfmux_opt "$proj_dir" sowatch
 }
 
 stop_watcher () {
@@ -1459,6 +1462,7 @@ start_watcher () {
 
       if expr "$line" : '[[:space:]]*$' ; then
          continue
+
       elif expr "$line" : 'w+,[01],\[[^]:[:space:]]\+\]:.*[:a-zA-Z].*$' ; then
 
          state=files
@@ -1524,7 +1528,9 @@ run_watcher () {
    mkdir -p "$pid_dir"
 
    count_file="$proj_dir/.wfmux/count"
+
    touch "$count_file"
+   sed -i "/^$wname:/d" "$count_file"
 
    cmd='
       c=$(sed -ne "s/^$wname:\([0-9]\|[1-9][0-9]\+\)$/\1/p" "$count_file")
@@ -1626,7 +1632,7 @@ opt_wfmux_vwatch () {
                      done
                      read _
                    '
-   last_wfmux_opt vwatch
+   last_wfmux_opt "$proj_dir" vwatch
    tmux display-popup -C
 
    return
@@ -1678,12 +1684,10 @@ opt_wfmux_cwatch () {
 wtop_fetch_print () {
    watch_conf=$1
    proj_dir=$2
-   sense=${3:-}
+   key=${3:-}
 
    old_size=${old_size:-}
    size=$(stty -F /dev/tty size)
-
-   test -z "$sense" && test "$old_size" = "$size" && return
 
    if test "$old_size" != "$size" ; then
       old_size=$size
@@ -1702,12 +1706,12 @@ wtop_fetch_print () {
 
    count_file="$proj_dir/.wfmux/count"
 
-   wname_o=4
-   wtype_o=4
-   state_o=5
-   count_o=5
-   pid_o=3
-   cmd_o=7
+   wname_o=4 wname=''
+   wtype_o=4 wtype=''
+   state_o=5 state=''
+   count_o=5 count=''
+   pid_o=3   pid=''
+   cmd_o=7   cmd=''
 
    data=''
    while read line ; do
@@ -1753,9 +1757,9 @@ wtop_fetch_print () {
    data_w=0
    data_h=0
 
-   space='    '
+   space='     '
    data=$(
-      fmt="${space}%-${wname_o}s | %s | %-${pid_o}s | %s | %-${count_o}s | %-${cmd_o}s"
+      fmt="${space}%-${wname_o}s │ %s │ %-${pid_o}s │ %s │ %-${count_o}s │ %-${cmd_o}s"
       printf "$fmt" NAME TYPE PID STATE TIMES COMMAND
    )
 
@@ -1764,7 +1768,7 @@ wtop_fetch_print () {
    hori_bar=''
    l=0
    while test $l -ne $data_w ; do
-      hori_bar="${hori_bar}_"
+      hori_bar="${hori_bar}──"
       l=$(( $l + 1 ))
    done
 
@@ -1779,8 +1783,9 @@ wtop_fetch_print () {
       _pid=$(  say "$pid"   | sed -ne "${l}p")
       _cmd=$(  say "$cmd"   | sed -ne "${l}p")
 
+
       line=$(
-         fmt="${space}%-${wname_o}s | %-${wtype_o}s | %-${pid_o}s | %-${state_o}s | %-${count_o}s | %-${cmd_o}s"
+         fmt="${space}%-${wname_o}s │ %-${wtype_o}s │ %-${pid_o}s │ %-${state_o}s │ %-${count_o}s │ %-${cmd_o}s"
 
          printf "$fmt"     \
                 "$_wname"   \
@@ -1799,37 +1804,44 @@ wtop_fetch_print () {
    data_x="${data_x:-1}"
    data_y="${data_y:-1}"
 
-   # Possible senses: (T)OP, (D)OWN, (R)IGHT, and (L)EFT
-   if test "$sense" = T && test "$term_h" -lt "$data_h" ; then
+   # Possible keys: (T)OP, (D)OWN, (R)IGHT, and (L)EFT
+   if test "$key" = T && test "$term_h" -lt "$data_h" ; then
       data_y=$(( $data_y - 1 ))
       test "$data_y" -lt 0 && data_y=0
 
-   elif test "$sense" = D && test "$term_h" -lt "$data_h" ; then
+   elif test "$key" = D && test "$term_h" -lt "$data_h" ; then
       test $(( $data_y - 1 )) -ne $(( $data_h - $term_h )) && data_y=$(( $data_y + 1 ))
 
-   elif test "$sense" = L && test "$term_w" -lt "$data_w" ; then
+   elif test "$key" = L && test "$term_w" -lt "$data_w" ; then
       data_x=$(( $data_x - 1 ))
       test "$data_x" -lt 0 && data_x=0
 
-   elif test "$sense" = R && test "$term_w" -lt "$data_w" ; then
+   elif test "$key" = R && test "$term_w" -lt "$data_w" ; then
       data_x=$(( $data_x + 1 ))
       test "$data_x" -gt "$data_w" && data_x="$data_w"
    fi
 
    # Now print the data!
-   l=1
-   say "$data" | while read line ; do
+   l=1 _y=$y
+   len=$(( $data_x - 1 ))
+   test $len -lt 0 && len=0
+
+   IFS=${NL%?}
+
+   # Start from $data_x up til at most $term_w
+   for line in $(say "$data" | sed -e "s/^.\{$len\}\(.\+\)/\1/;s/^\(.\{,$term_w\}\).*/\1/") ; do
       test $l -lt "$data_y" && continue
       test $l -gt "$term_h" && break
 
-      # Start from $data_x up til at most $term_w
-      line=$(say "$line" | sed -e "s/^.\{$(( $data_x - 1 ))\}\(.+\)/\1/;s/^\(.\{,$term_w\}\).+/\1/")
-      tty_print $x $y "$line"
+      tty_print $_y $x "$line"
 
-      y=$(( $y + 1 ))
+      _y=$(( $_y + 1 ))
       l=$(( $l + 1 ))
    done
 }
+
+stty_time () { stty -F /dev/tty time "$1"        2>/dev/null 2>&1; }
+dd_read   () { dd if=/dev/tty count="$1" bs="$2" 2>/dev/null;      }
 
 opt_wfmux_wtop () {
    tmux_or_die
@@ -1846,22 +1858,16 @@ opt_wfmux_wtop () {
 
    printf "${ESC_ALT_SCREEN}${ESC_HIDE_CUR}${ESC_CLEAR_SCREEN}"
 
-   ctrl_z="$(printf '\32')"
-   escape="$(printf '\33')"
+   ctrl_c=$(printf '\32')
+   escape=$(printf '\33')
    while true ; do
-      stty -F /dev/tty time 10 >/dev/null 2>&1
-      key=$(dd if=/dev/tty count=1 bs=1 2>/dev/null)
+      stty_time 10; key=$(dd_read 1 1)
 
-      if test -z "$key" ; then
-         wtop_fetch_print "$watch_conf" "$proj_dir" "$key"
-         break
-      fi
+      test "$key" = q || test "$key" = "$ctrl_c" && break
 
-      if test "$key" = 'q' || test "$key" = "$ctrl_z" ; then
-         break
-      elif test "$key" = "$escape" ; then
-         stty -F /dev/tty time 0 >/dev/null 2>&1
-         key=$(dd if=/dev/tty count=3 bs=1 2>/dev/null)
+      test "$key" = "$escape" && {
+         stty_time 0; key=$(dd_read 3 1)
+
          case "$key" in
             '[A'*|'OA'*) key='U' ;;
             '[B'*|'OB'*) key='D' ;;
@@ -1869,17 +1875,17 @@ opt_wfmux_wtop () {
             '[C'*|'OC'*) key='R' ;;
             *)           key=''  ;;
          esac
-      fi
-
-      stty -F /dev/tty time 0 min 0 >/dev/null 2>&1
-      dd if=/dev/tty bs=512 count=1 >/dev/null 2>&1
+      }
 
       wtop_fetch_print "$watch_conf" "$proj_dir" "$key"
+      stty_time 0
+      dd_read 1 512 >/dev/null
    done
 
-   #printf "${ESC_NORMAL_SCREEN}${ESC_SHOW_CUR}${ESC_UNSET_ANSI}"
    stty "$init_stty"
-   last_wfmux_opt wtop
+   printf "${ESC_NORMAL_SCREEN}${ESC_SHOW_CUR}${ESC_UNSET_ANSI}"
+
+   last_wfmux_opt "$proj_dir" wtop
 }
 
 opt_wfmux_last () {
