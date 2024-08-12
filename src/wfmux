@@ -1398,7 +1398,7 @@ opt_wfmux_sawatch () {
    start_watcher "$proj_dir" "$id" "$name"
    last_wfmux_opt "$proj_dir" sawatch
 
-   #tmux display-popup -C
+   tmux display-popup -C
 }
 
 opt_wfmux_sowatch () {
@@ -1611,16 +1611,15 @@ opt_wfmux_vwatch () {
    test -z "$buf" && return
 
    # We could avoid tmux buffers and rely on pipe files which
-   # offers a more efficient implementation.
+   # I believe is a more efficient implementation.
    tmux new-window '
-                     val="" pval=""
-                     len=0  plen=0
+                     val=""
+                     len=0 plen=0
                      while sleep 0.2 ; do
                         val=$(tmux show-buffer -b '"$buf"')
                         len=$(printf "%s\n" "$val" | wc -l)
 
                         if test "$len" -gt "$plen" ; then
-                           pval="$val"
                            printf "%s\n" "$val" | tail -n"$(( $len - $plen ))"
                            plen="$len"
                         fi
@@ -1658,12 +1657,11 @@ opt_wfmux_cwatch () {
                      for buf in $buf_list ; do
                         tmux show-buffer -b "$buf"
                         read _
-                        printf "\033[2J"
+                        printf "\033[2J\033[0;0f"
                      done
                    '
 
    tmux display-popup -C
-   return
 }
 
 #  Fetch and print watchers' state.
