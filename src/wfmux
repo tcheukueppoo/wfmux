@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/dash
 
 #set -x
 set -u
@@ -909,8 +909,7 @@ run_cmd () {
       target=${target##*:}
       tmux send-keys -t "$target" "$cmd" C-m
 
-   # Spawn off a new pane in the current window if there's only one
-   # pane which is pane is busy.
+   # Spawn off a new pane in the current window if there's only one which is busy.
    elif test $(say "$panes" | wc -l) -eq 1 ; then
 
       tmux split-window -h "$cmd"
@@ -1038,14 +1037,12 @@ opt_wfmux_acommit () {
 }
 
 git_branches () {
-   IFS="${NL%?}"
-
+   IFS=${NL%?}
    for lbranch in $(git branch --list --no-color) ; do
       test "${lbranch% *}" = '*' && continue
 
-      lbranch="${lbranch#  }"
+      lbranch=${lbranch#  }
       rbranch=$(git rev-parse --abbrev-ref "$lbranch@{u}" 2>/dev/null)
-
       if test $? -eq 0 ; then
          printf 'L %s -> %s\n' "$lbranch" "$rbranch"
       else
@@ -1246,7 +1243,7 @@ check_conf () {
    e="
       1 { s/^w[-+],[01],\[$name\]:.*[:a-zA-Z].*$/1/p; b }
       $ { s/^end$/1/p; b }
-      /^\.\//p
+      /^\.\($\|\/\)/p
    "
    a=$(say "$conf" | wc -l)
    b=$(say "$conf" | sed -ne "$e" | wc -l)
@@ -1276,8 +1273,8 @@ opt_wfmux_mwatch () {
       }
       b
       :loop
-         /^\.\// { p; n; b loop }
-         /^end$/ { p; q }
+         /^\.\($\|\/\)/ { p; n; b loop }
+         /^end$/  { p; q }
          n
          b loop
    "
@@ -1396,31 +1393,38 @@ opt_wfmux_sawatch () {
    fi
 
    start_watcher "$proj_dir" "$id" "$name"
-   last_wfmux_opt "$proj_dir" sawatch
 
+   last_wfmux_opt "$proj_dir" sawatch
    tmux display-popup -C
 }
 
 opt_wfmux_sowatch () {
    tmux_or_die
 
-   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
+   session=$(tmux_cur_session)
+   id=${session##*-}
+
+   proj_dir=$(get_proj_dir "$session")
+
    test -z "$proj_dir" && die_not_wfmux
 
    watch_conf="$proj_dir/.wfmux/watch"
-   count_file="$proj_dir/.wfmux/count"
 
    name=$(select_watcher "$watch_conf")
    test -z "$name" && return
+
+   count_file="$proj_dir/.wfmux/count"
+   sed -i "/^$name:/d" "$count_file"
 
    pid_file="$proj_dir/.wfmux/pids/$name.pid"
    if ! test -s "$pid_file" ; then
       wfmux_die "watch($name): Unable to find the pid of the watcher"
    fi
 
+   tmux delete-buffer -b "$name-$id" 2>/dev/null
    stop_watcher "$name" "$pid_file"
-   last_wfmux_opt "$proj_dir" sowatch
 
+   last_wfmux_opt "$proj_dir" sowatch
    tmux display-popup -C
 }
 
@@ -1437,6 +1441,8 @@ stop_watcher () {
 }
 
 start_watcher () {
+   requires setpgid
+
    proj_dir=$1
    id=$2
    name=${3:-}
@@ -1465,11 +1471,11 @@ start_watcher () {
       elif expr "$line" : 'w+,[01],\[[^]:[:space:]]\+\]:.*[:a-zA-Z].*$' ; then
 
          state=files
-         wname="${line##w+,?,[}"
-         wname="${wname%%]*}"
-         wtype="${line#*,}"
-         wtype="${wtype%%,*}"
-         cmd="${line#w+,?,\[*\]:}"
+         wname=${line##w+,?,[}
+         wname=${wname%%]*}
+         wtype=${line#*,}
+         wtype=${wtype%%,*}
+         cmd=${line#w+,?,\[*\]:}
          efiles="$efiles_dir/$wname.efiles"
 
       elif test -n "$name"   \
@@ -1502,18 +1508,16 @@ start_watcher () {
                      "$cmd"           \
                      "$dir"
       else
-         die_conf "('$watch_conf'): Failed to parse config at line $n"
+         die_conf "watch_conf('$watch_conf'): Failed to parse config at line $n"
       fi
    done <"$watch_conf"
 
    if test $state = files ; then
-      die_conf "('$watch_conf'): Expected the 'end' token"
+      die_conf "watch_conf('$watch_conf'): Expected the 'end' token"
    fi
 }
 
 run_watcher () {
-   requires setpgid
-
    proj_dir=$1
    id=$2
    wname=$3
@@ -1530,7 +1534,9 @@ run_watcher () {
    touch "$count_file"
    sed -i "/^$wname:/d" "$count_file"
 
-   cmd='
+
+   sh=$(get_shell)
+   entr_cmd='
       c=$(sed -ne "s/^$wname:\([0-9]\|[1-9][0-9]\+\)$/\1/p" "$count_file")
       if test -n "$c" ; then
          c=$(( $c + 1 ))
@@ -1541,46 +1547,45 @@ run_watcher () {
          printf "%s:1\n" "$wname" >>"$count_file"
       fi
 
-      tmux set-buffer -b "$wname-$id" "$(printf "\033[34mN_TIMES\033[0m: $c")"
-      { '"$cmd"'; } 2>&1 | while read line ; do
-         tmux set-buffer -ab "$wname-$id" "$(printf "\n$line")"
+      tmux delete-buffer -b "$wname-$id"
+      tmux set-buffer    -b "$wname-$id" "$(printf "\033[34mN_TIMES\033[0m: $c")"
+      "$sh" -c "$cmd" 2>&1 | while read buf ; do
+         tmux set-buffer -ab "$wname-$id" "$(printf "\n$buf")"
       done
    '
 
    entr_opts='-ns'
-   test "$wtype" = 1 && entr_opts="${entr_opts}r"
-
    efiles="$proj_dir/.wfmux/efiles/$wname.efiles"
 
+   export sh
+   export cmd
    export count_file
    export wname
    export id
 
+   test "$wtype" = 1 && entr_opts="${entr_opts}r"
+
    if test "$dir" = false ; then
-      setpgid entr $entr_opts "$cmd" <"$efiles" >/dev/null 2>&1 &
+      setpgid entr $entr_opts "$entr_cmd" <"$efiles" >/dev/null 2>&1 &
       say "$!" >"$pid_file"
    else
-      entr_opts="${entr_opts}d"
-
+      export entr_opts="${entr_opts}d"
       export efiles
-      export entr_opts
       export pid_file
-      export cmd
-      watch='
-        while sleep 0.5 ; do
-          printf "$$\n" >"$pid_file"
+      export entr_cmd
 
+      watch='
+        while true ; do
+          printf "$$\n" >"$pid_file"
           test -s "$efiles" || {
             tmux set-buffer -b "$wname-$id" "Unable to locate files, restart the watcher!"
             break
           }
-          entr $entr_opts "$cmd" <"$efiles" >/dev/null 2>&1 &
+          entr $entr_opts "$entr_cmd" <"$efiles" >/dev/null 2>&1 &
           printf "$!\n" >>"$pid_file"
           waitpid $!
         done
       '
-
-      sh=$(get_shell)
       setpgid "$sh" -c "$watch" &
    fi
 }
@@ -1610,11 +1615,9 @@ opt_wfmux_vwatch () {
    buf=$(say "$buf_list" | eval "$MENU") 
    test -z "$buf" && return
 
-   # We could avoid tmux buffers and rely on pipe files which
-   # I believe is a more efficient implementation.
+   # We could avoid tmux buffers and rely on pipe files which is more efficient.
    tmux new-window '
-                     val=""
-                     len=0 plen=0
+                     val="" len=0 plen=0
                      while sleep 0.2 ; do
                         val=$(tmux show-buffer -b '"$buf"')
                         len=$(printf "%s\n" "$val" | wc -l)
@@ -1624,7 +1627,6 @@ opt_wfmux_vwatch () {
                            plen="$len"
                         fi
                      done
-                     read _
                    '
    last_wfmux_opt "$proj_dir" vwatch
    tmux display-popup -C
@@ -1651,12 +1653,30 @@ opt_wfmux_cwatch () {
    }
 
    tmux new-window '
+                     init_stty=$(stty -g)
                      buf_list="'"$buf_list"'"
                      NL=$(printf "\n_")
                      IFS=${NL%?}
+
                      for buf in $buf_list ; do
-                        tmux show-buffer -b "$buf"
-                        read _
+                        val=""
+                        key=""
+                        len=0
+                        plen=0
+
+                        while true ; do
+                           val=$(tmux show-buffer -b $buf)
+                           len=$(printf "%s\n" "$val" | wc -l)
+
+                           if test "$len" -gt "$plen" ; then
+                              printf "%s\n" "$val" | tail -n $(( $len - $plen ))
+                              plen=$len
+                           fi
+
+                           key=$(stty -cooked min 0 time 5; dd if=/dev/tty bs=1 count=1 2>/dev/null)
+                           stty "$init_stty"
+                           test -n "$key" && break
+                        done
                         printf "\033[2J\033[0;0f"
                      done
                    '
@@ -1671,7 +1691,7 @@ opt_wfmux_cwatch () {
 #  STATE:  + (enabled) / - (disabled)
 #  TIME: The number of times the command was ran by the watcher
 #
-#  NAME   |  PID  | STATE | TIMES | COMMAND
+#  NAME   |  PID  | STATE | COUNT | COMMAND
 # --------+-------+-------+-------+-----------------
 #  test   | 10722 | +     | 10    | make test && ...
 #  deploy | 10764 | -     | 4     | make deploy && ...
@@ -1684,22 +1704,19 @@ wtop_fetch_print () {
    size=$(stty -F /dev/tty size)
 
    if test "$old_size" != "$size" ; then
-
       printf "${ESC_CLEAR_SCREEN}"
-      old_size=$size
 
-      term_h="${size%% *}"
-      term_w="${size##* }"
+      old_size=$size
+      term_h=${size%% *}
+      term_w=${size##* }
 
       # Set padding size to 5% of the tty's area
-      x=$(( (5 * $term_w) / 100 ))
-      y=$(( (5 * $term_h) / 100 ))
+      x=$(( (5  * $term_w) / 100 ))
+      y=$(( (10 * $term_h) / 100 ))
 
       # Update the size of the tty given the padding size
       term_h=$(( $term_h - (2 * $y) ))
       term_w=$(( $term_w - (2 * $x) ))
-
-      echo "term_w: $term_w, term_h: $term_h, x: $x, y: $y" >>/tmp/term_info
    fi
 
    count_file="$proj_dir/.wfmux/count"
@@ -1715,16 +1732,16 @@ wtop_fetch_print () {
    while read line ; do
       expr "$line" : 'w[-+],[01],\[[^]:[:space:]]\+\]:.*[:a-zA-Z].*$' >/dev/null || continue
 
-      _state="${line%%,*}"
-      _state="${_state#?}"
-      _wtype="${line#*,}"
-      _wtype="${_wtype%%,*}"
-      _wname="${line##w?,?,[}"
-      _wname="${_wname%%]*}"
-      _cmd="${line#w?,?,\[*\]:}"
+      _state=${line%%,*}
+      _state=${_state#?}
+      _wtype=${line#*,}
+      _wtype=${_wtype%%,*}
+      _wname=${line##w?,?,[}
+      _wname=${_wname%%]*}
+      _cmd=${line#w?,?,\[*\]:}
 
       # Get the number of times the watcher ran the command
-      _count=$(sed -ne "s/^$_wname:\([0-9]\|[1-9][0-9]\+\)$/\1/p" "$count_file")
+      _count=$(sed -ne "s/^$_wname:\($NUM_RE\)$/\1/p" "$count_file")
       test -z "$_count" && _count='N/A'
 
       # Get the PID of the watcher if it's running
@@ -1732,7 +1749,7 @@ wtop_fetch_print () {
       pid_file="$proj_dir/.wfmux/pids/$_wname.pid"
       if test -s "$pid_file" ; then
          read _pid <"$pid_file"
-         expr "$_pid" : "\([0-9]\|[1-9][0-9]\+\)$" >/dev/null || _pid='N/A'
+         expr "$_pid" : "\($NUM_RE\)$" >/dev/null && test -d "/proc/$_pid" || _pid='N/A'
       fi
 
       state="${state:-}${state:+${NL%?}}${_state}"
@@ -1743,10 +1760,10 @@ wtop_fetch_print () {
       count="${count:-}${count:+${NL%?}}${_count}"
 
       # Calculate the maximum offset of each field for max alignment
-      test "$wname_o" -lt "${#_wname}" && wname_o="${#_wname}"
-      test "$count_o" -lt "${#_count}" && count_o="${#_count}"
-      test "$pid_o"   -lt "${#_pid}"   && pid_o="${#_pid}"
-      test "$cmd_o"   -lt "${#_cmd}"   && cmd_o="${#_cmd}"
+      test "$wname_o" -lt "${#_wname}" && wname_o=${#_wname}
+      test "$count_o" -lt "${#_count}" && count_o=${#_count}
+      test "$pid_o"   -lt "${#_pid}"   && pid_o=${#_pid}
+      test "$cmd_o"   -lt "${#_cmd}"   && cmd_o=${#_cmd}
 
       c=$(( $c + 1 ))
 
@@ -1754,17 +1771,17 @@ wtop_fetch_print () {
 
    test -z "$wname" && wfmux_die 'No watcher was detected!'
 
-   # Build the data, unfortunately we are not using any TUI lib
+   # Build the data, unfortunately we aren't using a TUI framework
    data_w=0
    data_h=0
 
    space='     '
    data=$(
       fmt="${space}%-${wname_o}s │ %s │ %-${pid_o}s │ %s │ %-${count_o}s │ %-${cmd_o}s${space}"
-      printf "$fmt" NAME TYPE PID STATE TIMES COMMAND
+      printf "$fmt" NAME TYPE PID STATE COUNT COMMAND
    )
 
-   data_w=$(( ${#data} + ${#space} ))
+   data_w=${#data}
 
    l=0
    hori_bar=''
@@ -1799,22 +1816,24 @@ wtop_fetch_print () {
       data="${data}${data:+${NL%?}}${line}${NL%?}${hori_bar}"
    done
 
+   #echo "$data" >>/tmp/see
+
    data_h=$(( ($c * 2) + 2 ))
 
    data_x=${data_x:-1}
    data_y=${data_y:-1}
 
-   # Possible keys: (T)OP, (D)OWN, (R)IGHT, and (L)EFT
-   if test "$key" = T && test "$term_h" -lt "$data_h" ; then
-      data_y=$(( $data_y - 1 ))
-      test "$data_y" -lt 0 && data_y=2
+   # Possible keys: (U)P, (D)OWN, (R)IGHT, and (L)EFT
+   if test "$key" = U && test "$term_h" -lt "$data_h" ; then
+      data_y=$(( $data_y - 2 ))
+      test "$data_y" -lt 0 && data_y=1
 
    elif test "$key" = D && test "$term_h" -lt "$data_h" ; then
-      test $(( $data_y - 2 )) -ne $(( $data_h - $term_h )) && data_y=$(( $data_y + 2 ))
+      test $(( $data_h - $data_y )) -gt $term_h && data_y=$(( $data_y + 2 ))
 
    elif test "$key" = L && test "$term_w" -lt "$data_w" ; then
       data_x=$(( $data_x - 2 ))
-      test "$data_x" -lt 0 && data_x=2
+      test "$data_x" -lt 0 && data_x=1
 
    elif test "$key" = R && test "$term_w" -lt "$data_w" ; then
       data_x=$(( $data_x + 2 ))
@@ -1822,21 +1841,19 @@ wtop_fetch_print () {
    fi
 
    # Now print the data!
-   l=1
    y_=$y
+   echo "$y" >/tmp/s
    len=$(( $data_x - 1 ))
-   test $len -lt 0 && len=0
 
-   #echo "$term_w" >/tmp/term
-   #echo "$data"   >/tmp/see
-
+   l=1
    IFS=${NL%?}
 
-   # Start from $data_x up til at most $term_w
+   # From $data_x up until at most $term_w
    for line in $(say "$data" | sed -e "s/^.\{,$len\}\(.*\)/\1/;s/^\(.\{,$term_w\}\).*/\1/") ; do
       test $l -lt "$data_y" && continue
       test $l -gt "$term_h" && break
 
+      echo "$y_: $line" >>/tmp/s
       tty_print $y_ $x "$line"
 
       y_=$(( $y_ + 1 ))
@@ -1865,21 +1882,24 @@ opt_wfmux_wtop () {
    ctrl_c=$(printf '\32')
    escape=$(printf '\33')
    while true ; do
-      stty_time 10; key=$(dd_read 1 1)
+      stty_time 10
+      key=$(dd_read 1 1)
 
       test "$key" = q || test "$key" = "$ctrl_c" && break
-
-      test "$key" = "$escape" && {
-         stty_time 0; key=$(dd_read 3 1)
+      if test "$key" = "$escape" ; then
+         stty_time 0
+         key=$(dd_read 3 1)
 
          case "$key" in
-            '[A'*|'OA'*) key='U' ;;
-            '[B'*|'OB'*) key='D' ;;
-            '[D'*|'OD'*) key='L' ;;
-            '[C'*|'OC'*) key='R' ;;
-            *)           key=''  ;;
+            '[A'*|'OA'*) key=U  ;;
+            '[B'*|'OB'*) key=D  ;;
+            '[D'*|'OD'*) key=L  ;;
+            '[C'*|'OC'*) key=R  ;;
+            *)           key='' ;;
          esac
-      }
+      else
+         key=''
+      fi
 
       wtop_fetch_print "$watch_conf" "$proj_dir" "$key"
       stty_time 0
