@@ -1380,19 +1380,22 @@ opt_wfmux_sawatch () {
 
    watch_conf="$proj_dir/.wfmux/watch"
 
-   name=$(select_watcher "$watch_conf")
-   test -z "$name" && return
+   names=$(select_watcher "$watch_conf")
+   test -z "$names" && return
 
-   pid_file="$proj_dir/.wfmux/pids/$name.pid"
+   IFS=${NL%?}
+   for name in $names ; do
+      pid_file="$proj_dir/.wfmux/pids/$name.pid"
 
-   if test -s "$pid_file"                    \
-   && read pid <"$pid_file"                   \
-   && expr "$pid" : "\($NUM_RE\)$" >/dev/null  \
-   && test -d "/proc/$pid" ; then
-      wfmux_die "watch($name): The watcher is already running"
-   fi
+      if test -s "$pid_file"                    \
+      && read pid <"$pid_file"                   \
+      && expr "$pid" : "\($NUM_RE\)$" >/dev/null  \
+      && test -d "/proc/$pid" ; then
+         wfmux_die "watch($name): The watcher is already running"
+      fi
 
-   start_watcher "$proj_dir" "$id" "$name"
+      start_watcher "$proj_dir" "$id" "$name"
+   done
 
    last_wfmux_opt "$proj_dir" sawatch
    tmux display-popup -C
@@ -1402,27 +1405,29 @@ opt_wfmux_sowatch () {
    tmux_or_die
 
    session=$(tmux_cur_session)
-   id=${session##*-}
-
    proj_dir=$(get_proj_dir "$session")
 
    test -z "$proj_dir" && die_not_wfmux
 
    watch_conf="$proj_dir/.wfmux/watch"
-
-   name=$(select_watcher "$watch_conf")
-   test -z "$name" && return
-
    count_file="$proj_dir/.wfmux/count"
-   sed -i "/^$name:/d" "$count_file"
 
-   pid_file="$proj_dir/.wfmux/pids/$name.pid"
-   if ! test -s "$pid_file" ; then
-      wfmux_die "watch($name): Unable to find the pid of the watcher"
-   fi
+   names=$(select_watcher "$watch_conf")
+   test -z "$names" && return
 
-   tmux delete-buffer -b "$name-$id" 2>/dev/null
-   stop_watcher "$name" "$pid_file"
+   IFS=${NL%?}
+   for name in $names ; do
+      pid_file="$proj_dir/.wfmux/pids/$name.pid"
+
+      if ! test -s "$pid_file" ; then
+         tmux_message "watch($name): Unable to find the pid of the watcher"
+         continue
+      fi
+
+      tmux delete-buffer -b "$name-${session##*-}" 2>/dev/null
+      stop_watcher "$name" "$pid_file"
+      sed -i "/^$name:/d" "$count_file"
+   done
 
    last_wfmux_opt "$proj_dir" sowatch
    tmux display-popup -C
@@ -1617,8 +1622,12 @@ opt_wfmux_vwatch () {
 
    # We could avoid tmux buffers and rely on pipe files which is more efficient.
    tmux new-window '
-                     val="" len=0 plen=0
-                     while sleep 0.2 ; do
+                     init_stty=$(stty -g)
+                     key=""
+                     val=""
+                     len=0
+                     plen=0
+                     while true ; do
                         val=$(tmux show-buffer -b '"$buf"')
                         len=$(printf "%s\n" "$val" | wc -l)
 
@@ -1626,6 +1635,10 @@ opt_wfmux_vwatch () {
                            printf "%s\n" "$val" | tail -n"$(( $len - $plen ))"
                            plen="$len"
                         fi
+
+                        key=$(stty -cooked min 0 time 5 >/dev/null 2>&1; dd if=/dev/tty bs=1 count=1 2>/dev/null)
+                        test -n "$key" && break
+                        stty "$init_stty" >/dev/null 2>&1
                      done
                    '
    last_wfmux_opt "$proj_dir" vwatch
@@ -1673,8 +1686,8 @@ opt_wfmux_cwatch () {
                               plen=$len
                            fi
 
-                           key=$(stty -cooked min 0 time 5; dd if=/dev/tty bs=1 count=1 2>/dev/null)
-                           stty "$init_stty"
+                           key=$(stty -cooked min 0 time 5 >/dev/null 2>&1; dd if=/dev/tty bs=1 count=1 2>/dev/null)
+                           stty "$init_stty" >/dev/null 2>&1
                            test -n "$key" && break
                         done
                         printf "\033[2J\033[0;0f"
