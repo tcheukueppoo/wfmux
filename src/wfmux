@@ -434,7 +434,7 @@ tmux_cur_session () {
 }
 
 tmux_cur_pty () {
-   tmux list-clients -F '#S:#{client_tty}' | grep -F "$(tmux_cur_session):" | head -n1 | cut -d: -f2
+   tmux list-clients -F '#{client_tty}:#{client_activity}' | sort -b -t: -k2,2n | tail -n1 | cut -d: -f1
 }
 
 tmux_message () {
@@ -549,7 +549,7 @@ new_session () {
 
       test -z "${TMUX:-}" && display_dashboard
       tmux new-session -s "$session" -d
-      start_watcher "$proj_dir" "$id"
+      start_watcher "$proj_dir" "$id" >/dev/null 2>&1
    }
 
    if [ -z "${TMUX:-}" ] ; then
@@ -600,14 +600,14 @@ opt_wfmux_ksession () {
    done
 
    # Switch to the most recently accessed wfmux tmux session first.
-   if test "$(cur_session)" = "$session" \
+   if test "$(tmux_cur_session)" = "$session" \
    && test $(say "$wfmux_sessions" | wc -l) -gt 1 ; then
       test $n -eq 1         \
          && n=$(( $n + 1 ))  \
          || n=$(( $n - 1 ))
 
       target_session=$(say "$wfmux_sessions" | sed -ne "${n}p")
-      tmux switch-client -c "$(cur_pty)" -t "$target_session"
+      tmux switch-client -c "$(tmux_cur_pty)" -t "$target_session"
    fi
 
    tmux kill-session -t "$session"
@@ -757,7 +757,6 @@ opt_wfmux_explore () {
    requires "$FILE_MANAGER"
 
    proj_dir=$(get_proj_dir "$(tmux_cur_session)")
-
    test -z "$proj_dir" && die_not_wfmux
 
    last_wfmux_opt "$proj_dir" explore
@@ -789,7 +788,7 @@ get_proj_files () {
       done
    fi
 
-   if [ -n "$ignore" ] ; then
+   if test -n "$ignore" ; then
       eval find . '\(' "$ignore" '\)' -prune -or -type f "$dir_opt"
    else
       eval find . -type f "$dir_opt"
@@ -1189,7 +1188,7 @@ opt_wfmux_awatch () {
    read name
    test -z "$name" && return
 
-   expr "$name" : '[a-zA-Z][-a-zA-Z0-9]\+$' >/dev/null || {
+   expr "$name" : '[a-zA-Z][_-a-zA-Z0-9]\+$' >/dev/null || {
       wfmux_die "'$name' isn't a valid watcher name"
    }
 
@@ -1262,7 +1261,7 @@ opt_wfmux_mwatch () {
 
    watch_conf="$proj_dir/.wfmux/watch"
 
-   name=$(select_watcher "$watch_conf")
+   name=$(select_watcher "$watch_conf" | head -n1)
    test -z "$name" && return
 
    e="
@@ -1318,10 +1317,13 @@ opt_wfmux_rwatch () {
 
    watch_conf="$proj_dir/.wfmux/watch"
 
-   name=$(select_watcher "$watch_conf")
-   test -z "$name" && return
+   names=$(select_watcher "$watch_conf")
+   test -z "$names" && return
 
-   del_watcher "$name" "$watch_conf"
+   IFS=${NL%?}
+   for name in $names ; do
+      del_watcher "$name" "$watch_conf"
+   done
    last_wfmux_opt "$proj_dir" rwatch
 }
 
@@ -1385,15 +1387,6 @@ opt_wfmux_sawatch () {
 
    IFS=${NL%?}
    for name in $names ; do
-      pid_file="$proj_dir/.wfmux/pids/$name.pid"
-
-      if test -s "$pid_file"                    \
-      && read pid <"$pid_file"                   \
-      && expr "$pid" : "\($NUM_RE\)$" >/dev/null  \
-      && test -d "/proc/$pid" ; then
-         wfmux_die "watch($name): The watcher is already running"
-      fi
-
       start_watcher "$proj_dir" "$id" "$name"
    done
 
@@ -1419,14 +1412,9 @@ opt_wfmux_sowatch () {
    for name in $names ; do
       pid_file="$proj_dir/.wfmux/pids/$name.pid"
 
-      if ! test -s "$pid_file" ; then
-         tmux_message "watch($name): Unable to find the pid of the watcher"
-         continue
-      fi
-
+      sed -i "/^$name:/d" "$count_file"
       tmux delete-buffer -b "$name-${session##*-}" 2>/dev/null
       stop_watcher "$name" "$pid_file"
-      sed -i "/^$name:/d" "$count_file"
    done
 
    last_wfmux_opt "$proj_dir" sowatch
@@ -1437,9 +1425,15 @@ stop_watcher () {
    name=$1
    pid_file=$2
 
+   test -s "$pid_file" || {
+      tmux_message "watch($name): Unable to find its pid"
+      return
+   }
+
    while read pid ; do
       expr "$pid" : "\($NUM_RE\)$" >/dev/null || {
-         wfmux_die "watch($name): Invalid pid found at '$pid_file'"
+         tmux_message "watch($name): Invalid pid found at '$pid_file'"
+         return
       }
       test -d "/proc/$pid" && kill -KILL $pid
    done <"$pid_file"
@@ -1451,7 +1445,7 @@ start_watcher () {
    proj_dir=$1
    id=$2
    name=${3:-}
-   
+
    watch_conf="$proj_dir/.wfmux/watch"
    test -s "$watch_conf" || return
 
@@ -1534,6 +1528,14 @@ run_watcher () {
    pid_file="$pid_dir/$wname.pid"
    mkdir -p "$pid_dir"
 
+   if test -s "$pid_file"                    \
+   && read pid <"$pid_file"                   \
+   && expr "$pid" : "\($NUM_RE\)$" >/dev/null  \
+   && test -d "/proc/$pid" ; then
+      tmux_message "watch($name): The watcher is already running"
+      return
+   fi
+ 
    count_file="$proj_dir/.wfmux/count"
 
    touch "$count_file"
@@ -1552,8 +1554,7 @@ run_watcher () {
          printf "%s:1\n" "$wname" >>"$count_file"
       fi
 
-      tmux delete-buffer -b "$wname-$id"
-      tmux set-buffer    -b "$wname-$id" "$(printf "\033[34mN_TIMES\033[0m: $c")"
+      tmux set-buffer -b "$wname-$id" "$(printf "\033[34mN_TIMES\033[0m: $c")"
       "$sh" -c "$cmd" 2>&1 | while read buf ; do
          tmux set-buffer -ab "$wname-$id" "$(printf "\n$buf")"
       done
@@ -1730,6 +1731,9 @@ wtop_fetch_print () {
       # Update the size of the tty given the padding size
       term_h=$(( $term_h - (2 * $y) ))
       term_w=$(( $term_w - (2 * $x) ))
+
+      test $x -eq 0 && x=1
+      test $y -eq 0 && y=1
    fi
 
    count_file="$proj_dir/.wfmux/count"
@@ -1829,10 +1833,7 @@ wtop_fetch_print () {
       data="${data}${data:+${NL%?}}${line}${NL%?}${hori_bar}"
    done
 
-   #echo "$data" >>/tmp/see
-
    data_h=$(( ($c * 2) + 2 ))
-
    data_x=${data_x:-1}
    data_y=${data_y:-1}
 
@@ -1854,23 +1855,19 @@ wtop_fetch_print () {
    fi
 
    # Now print the data!
-   y_=$y
-   echo "$y" >/tmp/s
-   len=$(( $data_x - 1 ))
-
    l=1
-   IFS=${NL%?}
+   y_=$y
 
    # From $data_x up until at most $term_w
-   for line in $(say "$data" | sed -e "s/^.\{,$len\}\(.*\)/\1/;s/^\(.\{,$term_w\}\).*/\1/") ; do
+   IFS=${NL%?}
+   for line in $(say "$data" | sed -e "s/^.\{,$(( $data_x - 1 ))\}\(.*\)/\1/;s/^\(.\{,$term_w\}\).*/\1/") ; do
       test $l -lt "$data_y" && continue
       test $l -gt "$term_h" && break
 
-      echo "$y_: $line" >>/tmp/s
       tty_print $y_ $x "$line"
 
       y_=$(( $y_ + 1 ))
-      l=$(( $l + 1 ))
+      l=$((  $l  + 1 ))
    done
 }
 
