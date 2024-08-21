@@ -3,36 +3,63 @@
 ![wfmux's logo](url)
 
 Wfmux lets you enhance your developement workflow through `tmux`. It leverages
-tmux's buffers, popup panes, and other features to easily integrate most
-command line tools like `fzf`, `entr`, and `nnn`. Wfmux also lets you handle
-multiple projects with extreme ease. In order to automate your developement
-workflow, you just need to configure few tmux bindings specific to wfmux or
-simply use the default ones. Wfmux is extensable using shell scripting, you
-can write a wfmux plugin that performs a new wfmux operation.
+tmux's buffers, popup panes, and other tmux features to easily integrate most
+command line tools like `fzf`, `entr`, and `nnn` in your workflow. Wfmux also
+lets you handle multiple projects with extreme ease. In order to automate your
+developement workflow, you just need to configure few tmux bindings specific to
+wfmux or simply use the default configuration. Each wfmux tmux binding performs
+a specific wfmux operation. Wfmux is extensable via shell scripting, you use
+the wfmux API to implement new wfmux operations.
+
+## WFMUX OPERATION
+
+A wfmux operation is simply a shell function invoked via tmux. Most wfmux
+operation first detect the tmux session from where it was called, check if
+that session if a wfmux tmux session before the intended operation is
+performed. A wfmux tmux session is a tmux session for a project.
 
 ## Features
 
 * Configurable
-* Watchers
 * Project Manager
-* Simple Git Wrapper
+* Watchers
 * File Manager
 * File Opener
+* Simple Git Wrapper
+* Pop-up shells
 * Plugins
 
 ### Configuration
 
-Wfmux loads `~/.config/wfmux/wfmux.conf` at startup
+Wfmux loads `~/.config/wfmux/wfmux.conf` at startup, in this config file your
+default projects' directories is defined as such:
 
-To start using wfmux, add this to bottom of your shell's rc file:
+```sh
+# Projects are located in $HOME/projects.
+# You can add as much directories as you want.
+PROJECT_DIRS=$(cat <<END
+$HOME/projects
+END
+)
+```
+
+Wfmux lets you select a top-level directory under `$HOME/projects` and creates
+a tmux session for it, this session is known as a wfmux tmux session.
+
+To start using wfmux, add this to the bottom of your shell's rc file:
 
 ```sh
 test -z "${TMUX:-}" && command -v wfmux >/dev/null && . wfmux new
 ```
 
+### Project Manager
+
+
+
 ### Watchers 
 
-### Project Manager
+Wfmux uses entr to watch your files. You can add, delete, modify, enable,
+disable, and visualize watchers.
 
 ### Git Operations
 
