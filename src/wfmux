@@ -386,8 +386,8 @@ display_dashboard () {
          continue
       }
 
-      term_h="${new_size%% *}"
-      term_w="${new_size##* }"
+      term_h=${new_size%% *}
+      term_w=${new_size##* }
       if   test "$term_h" -lt 32 || test "$term_w" -lt 97 ; then
          _size=SS
       elif test "$term_h" -lt 43 || test "$term_w" -lt 155 ; then
@@ -1188,7 +1188,7 @@ opt_wfmux_awatch () {
    read name
    test -z "$name" && return
 
-   expr "$name" : '[a-zA-Z][_-a-zA-Z0-9]\+$' >/dev/null || {
+   expr "$name" : '[a-zA-Z][-_a-zA-Z0-9]\+$' >/dev/null || {
       wfmux_die "'$name' isn't a valid watcher name"
    }
 
@@ -1388,7 +1388,7 @@ opt_wfmux_sawatch () {
    IFS=${NL%?}
    for name in $names ; do
       start_watcher "$proj_dir" "$id" "$name"
-   done
+   done >/dev/null 2>&1
 
    last_wfmux_opt "$proj_dir" sawatch
    tmux display-popup -C
@@ -1485,9 +1485,9 @@ start_watcher () {
          continue
 
       elif test $state = files \
-      &&   expr "$line" : '\.\($\|/.*\)' ; then
+      &&   expr "$line" : '\(\./\?\|\./.\+\)$' ; then
 
-         file=$(say "$line" | sed -e 's/[[:space:]]*$//;s/ /\\ /g')
+         file=$(say "$line" | sed -e 's/\\/\\\\/g;s/ /\\ /g')
 
          IFS=${NL%?}
          for efile in $(eval each "$file") ; do
@@ -1507,12 +1507,12 @@ start_watcher () {
                      "$cmd"           \
                      "$dir"
       else
-         die_conf "watch_conf('$watch_conf'): Failed to parse config at line $n"
+         die_conf "watch('$watch_conf'): Failed to parse config at line $n"
       fi
    done <"$watch_conf"
 
    if test $state = files ; then
-      die_conf "watch_conf('$watch_conf'): Expected the 'end' token"
+      die_conf "watch('$watch_conf'): Expected the 'end' token"
    fi
 }
 
