@@ -8,15 +8,16 @@ command line tools like `fzf`, `entr`, and `nnn` in your workflow. Wfmux also
 lets you handle multiple projects with extreme ease. In order to automate your
 developement workflow, you just need to configure few tmux bindings specific to
 wfmux or simply use the default configuration. Each wfmux tmux binding performs
-a specific wfmux operation. Wfmux is extensable via shell scripting, you use
-the wfmux API to implement new wfmux operations.
+a specific wfmux operation. Wfmux is extensable via shell scripting, use the
+wfmux API to implement new wfmux operations.
 
 ## WFMUX OPERATION
 
 A wfmux operation is simply a shell function invoked via tmux. Most wfmux
-operation first detect the tmux session from where it was called, check if
-that session if a wfmux tmux session before the intended operation is
-performed. A wfmux tmux session is a tmux session for a project.
+operation first detect the tmux session from which it was called, check if
+that session is a wfmux tmux session before the intended operation is
+then performed. A wfmux tmux session is a tmux session dedicated to a
+project.
 
 ## Features
 
@@ -54,17 +55,31 @@ test -z "${TMUX:-}" && command -v wfmux >/dev/null && . wfmux new
 
 ### Project Manager
 
-
+Each opened project has a tmux session. When a project is opened, all the enabled
+watchers of that project are started, closing a project shuts down all its running
+watchers. Within your terminal emulator you can rapidly switch between different
+projects.
 
 ### Watchers 
 
-Wfmux uses entr to watch your files. You can add, delete, modify, enable,
-disable, and visualize watchers.
+Wfmux uses entr to watch your files. You can add, delete, modify, enable, disable,
+and visualize watchers.
 
 ### Git Operations
 
+It's also got few wrappers over some basic git operations like commit, branch, log,
+checkout, etc
+
+
 ### File Manager
+
+Open your file manager on a popup tmux pane, do stuffs and then exit.
 
 ### File Opener
 
+
 ### Wfmux Plugins
+
+You can add more wfmux operations:
+
+* 
