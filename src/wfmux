@@ -147,9 +147,10 @@ USE_XDG_OPEN=false
 
 PROGRAMS=$(cat <<END
 tty=true,text=vim '%s'
+tty=true,x-empty=vim '%s'
 tty=true,directory=nnn '%s'
-tty=false,video=ffplay -hide_banner -loop 0 '%s'
 tty=true,audio=ffplay  -hide_banner -loop 0 -nodisp '%s'
+tty=false,video=ffplay -hide_banner -loop 0 '%s'
 tty=false,pdf=zathura '%s'
 tty=false,image=feh '%s'
 END
@@ -596,7 +597,7 @@ opt_wfmux_ksession () {
    IFS=${NL%?}
    for name in $(watchers "$watch_conf") ; do
       pid_file="$proj_dir/.wfmux/pids/$name.pid"
-      stop_watcher "$name" "$pid_file"
+      test -s "$pid_file" && stop_watcher "$name" "$pid_file"
    done
 
    # Switch to the most recently accessed wfmux tmux session first.
@@ -808,8 +809,8 @@ get_filetype () {
       return
    fi
 
-   expr "$filetype" : application >/dev/null  \
-      && filetype=${filetype##*/}              \
+   expr "$filetype" : '\(application\|inode\)' >/dev/null  \
+      && filetype=${filetype##*/}                           \
       || filetype=${filetype%%/*}
 
    printf "$filetype"
@@ -1293,8 +1294,8 @@ opt_wfmux_mwatch () {
    eval "$edit" $tmpfile
    conf=$(grep -xv '[[:space:]]*\(#.*\)\?' $tmpfile)
 
-   check_conf $name "$conf"
-   del_watcher $name "$watch_conf"
+   check_conf  "$name" "$conf"
+   del_watcher "$name" "$watch_conf"
    say "$conf" >>"$watch_conf"
 
    last_wfmux_opt "$proj_dir" mwatch
@@ -1414,6 +1415,10 @@ opt_wfmux_sowatch () {
 
       sed -i "/^$name:/d" "$count_file"
       tmux delete-buffer -b "$name-${session##*-}" 2>/dev/null
+      test -s "$pid_file" || {
+         tmux_message "watch($name): Unable to find its pid"
+         continue
+      }
       stop_watcher "$name" "$pid_file"
    done
 
@@ -1425,18 +1430,15 @@ stop_watcher () {
    name=$1
    pid_file=$2
 
-   test -s "$pid_file" || {
-      tmux_message "watch($name): Unable to find its pid"
-      return
-   }
-
    while read pid ; do
       expr "$pid" : "\($NUM_RE\)$" >/dev/null || {
          tmux_message "watch($name): Invalid pid found at '$pid_file'"
-         return
+         return 1
       }
       test -d "/proc/$pid" && kill -KILL $pid
    done <"$pid_file"
+
+   return 0
 }
 
 start_watcher () {
@@ -1476,6 +1478,7 @@ start_watcher () {
          wtype=${wtype%%,*}
          cmd=${line#w+,?,\[*\]:}
          efiles="$efiles_dir/$wname.efiles"
+         >"$efiles"
 
       elif test -n "$name"   \
       &&   test -n "$wname"   \
@@ -1494,7 +1497,7 @@ start_watcher () {
             test -e "$efile" || wfmux_die "watch($wname): '$efile' does not exist"
             test -d "$efile" && dir=true
             say "$efile"
-         done >"$efiles"
+         done >>"$efiles"
 
       elif expr "$line" : 'end$' \
       &&   test $state = files ; then
@@ -1861,13 +1864,14 @@ wtop_fetch_print () {
    # From $data_x up until at most $term_w
    IFS=${NL%?}
    for line in $(say "$data" | sed -e "s/^.\{,$(( $data_x - 1 ))\}\(.*\)/\1/;s/^\(.\{,$term_w\}\).*/\1/") ; do
-      test $l -lt "$data_y" && continue
-      test $l -gt "$term_h" && break
+      test $l -lt "$data_y" && l=$(( $l + 1 )) && continue
 
       tty_print $y_ $x "$line"
 
       y_=$(( $y_ + 1 ))
       l=$((  $l  + 1 ))
+
+      test $(( $l - $data_y )) -eq "$term_h" && break
    done
 }
 
