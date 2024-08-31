@@ -90,6 +90,7 @@ WFMUX_OPS=$(cat <<END
 new
 tmux
 dump
+ack
 open
 explore
 shell
@@ -97,6 +98,7 @@ nsession
 ksession
 switch
 log
+diff
 commit
 acommit
 checkout
@@ -200,6 +202,7 @@ OPT:
     cbranch      Show in tmux the name of the current branch of your
                  project.
 
+    diff         Show changes between the working tree and the index.
     awatch       Create a watcher and add it to the watcher registry of
                  the current project.
     rwatch       Selected a watcher from the watcher registry to delete
@@ -231,6 +234,28 @@ END
 die () {
    say "$0: $*." >&2
    exit 1
+}
+
+tmux_or_die () {
+   test -n "${TMUX:-}" || die 'Wfmux must run in a tmux session'
+}
+
+tmux_message () {
+   tmux display-message -d 2500 -- "$*."
+}
+
+wfmux_die () {
+   tmux_message "$*"
+   tmux display-popup -C
+   exit 1
+}
+
+die_conf () {
+   if test -z "${TMUX:-}" ; then
+      die "('$WFMUX_CONF'): $*"
+   else
+      wfmux_die "('$WFMUX_CONF'): $*"
+   fi
 }
 
 main () {
@@ -274,12 +299,6 @@ main () {
 
    check_conf_vars
    eval "opt_wfmux_$opt_name"
-}
-
-die_conf () {
-   test -z "${TMUX:-}"                   \
-      && die "('$WFMUX_CONF'): $*"        \
-      || wfmux_die "('$WFMUX_CONF'): $*"
 }
 
 check_conf_vars () {
@@ -436,16 +455,6 @@ tmux_cur_session () {
 
 tmux_cur_pty () {
    tmux list-clients -F '#{client_tty}:#{client_activity}' | sort -b -t: -k2,2n | tail -n1 | cut -d: -f1
-}
-
-tmux_message () {
-   tmux display-message -d 2500 -- "$*."
-}
-
-wfmux_die () {
-   tmux_message "$*"
-   tmux display-popup -C
-   exit 1
 }
 
 shrink_proj_dirs () {
@@ -721,10 +730,6 @@ get_proj_dir () {
    done
 }
 
-tmux_or_die () {
-   test -n "${TMUX:-}" || die 'Wfmux must run in a tmux session'
-}
-
 opt_wfmux_switch () {
    tmux_or_die
 
@@ -820,6 +825,31 @@ say () {
    printf '%s\n' "$*"
 }
 
+opt_wfmux_ack () {
+   tmux_or_die
+
+   test "$USE_XDG_OPEN" = true && requires xdg-open
+   requires ack
+
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
+   test -z "$proj_dir" && die_not_wfmux
+
+   cd -L "$proj_dir"
+
+   printf 'Pattern: '
+   read pattern
+
+   test -z "$pattern" && return
+
+   files=$(ack -Ql "$pattern" .)
+   test -z "$files" && return
+
+   files=$(say "$files" | eval "$MENU")
+   open_files "$files"
+
+   last_wfmux_opt "$proj_dir" ack
+}
+
 ## Open a project file
 opt_wfmux_open () {
    tmux_or_die
@@ -832,8 +862,15 @@ opt_wfmux_open () {
    cd -L "$proj_dir"
 
    files=$(get_proj_files "$proj_dir" | eval "$MENU")
+   open_files "$files"
 
-   IFS="${NL%?}"
+   last_wfmux_opt "$proj_dir" open
+}
+
+open_files () {
+   files=$1
+
+   IFS=${NL%?}
    for file in $files ; do
 
       if test "$USE_XDG_OPEN" = true ; then
@@ -864,8 +901,6 @@ opt_wfmux_open () {
 
       run_cmd "$cmd" $use_tty
    done
-
-   last_wfmux_opt "$proj_dir" open
 }
 
 get_shell () {
@@ -949,10 +984,6 @@ requires () {
       command -v "$i" >/dev/null \
          || wfmux_die "$i: Command not found"
    done
-}
-
-has () {
-   command -v "$1" >/dev/null
 }
 
 opt_wfmux_log () {
@@ -1142,6 +1173,27 @@ opt_wfmux_cbranch () {
    last_wfmux_opt "$proj_dir" cbranch
 
    tmux_message "$(git branch --show-current)"
+   tmux display-popup -C
+}
+
+opt_wfmux_diff () {
+   tmux_or_die
+
+   requires git
+
+   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
+
+   test -z "$proj_dir" && die_not_wfmux
+
+   cd -L "$proj_dir"
+
+   is_git_repository || return
+
+   last_wfmux_opt "$proj_dir" cbranch
+
+   git diff
+   read _
+
    tmux display-popup -C
 }
 
@@ -1940,10 +1992,10 @@ opt_wfmux_last () {
    read opt <"$last_file"
    opt="opt_wfmux_$opt"
 
-   cmd_val=$(command -v "$opt")
-   if test -z "$cmd_val" ; then
+   cmd=$(command -v "$opt")
+   if test -z "$cmd" ; then
       tmux_message "$opt: undefined wfmux operation"
-   elif test "$cmd_val" != "$opt" ; then
+   elif test "$cmd" != "$opt" ; then
       tmux_message "$opt: wfmux operation should be a function!"
    else
       eval "$opt"
@@ -1954,15 +2006,15 @@ add_plug () {
    name=${1:-}
    test -z "$name" && return
 
-   say "$WFMUX_OPS" | grep -xqF "$name" || {
-      tmux_message "Another plugin has this name."
+   say "$WFMUX_OPS" | grep -xqF "$name" && {
+      tmux_message "Another plugin has the name '$name'"
       return
    }
 
    WFMUX_OPS="${WFMUX_OPS}${NL%?}$name"
 }
 
-wfmux_load_plugins () {
+load_plugins () {
    test -d "$WFMUX_PLUG_DIR" || return
    test -r "$WFMUX_PLUG_DIR" || {
       tmux_message "No read permission for '$WFMUX_PLUG_DIR'"
@@ -1980,17 +2032,17 @@ wfmux_load_plugins () {
 opt_wfmux_ops () {
    tmux_or_die
 
-   wfmux_load_plugins || return
+   load_plugins || return
 
-   opt=$(say "$WFMUX_OPS" | grep -xEv 'new|ops' | eval "$MENU")
+   opt=$(say "$WFMUX_OPS" | grep -xEv 'new|ops|dump|tmux' | eval "$MENU")
    test -z "$opt" && return
 
    func="opt_wfmux_$opt"
 
-   cmd_val=$(command -v "$func")
-   if test -z "$cmd_val" ; then
+   cmd=$(command -v "$func")
+   if test -z "$cmd" ; then
       tmux_message "$func: undefined wfmux operation"
-   elif test "$cmd_val" != "$func" ; then
+   elif test "$cmd" != "$func" ; then
       tmux_message "$func: wfmux operation should be a function!"
    else
       eval "$func"
