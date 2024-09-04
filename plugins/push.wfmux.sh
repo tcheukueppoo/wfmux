@@ -21,21 +21,21 @@ git_push () {
    is_git_repository || return
 
    upstream=$1; shift
-   if   test "$upstream" = github ; then
-      test -z "$GITHUB_TOKEN" && wfmux_die "'GITHUB_TOKEN' parameter is unset!"
+   if   [ "$upstream" = github ] ; then
+      test -z "${GITHUB_TOKEN:-}" && wfmux_die "Var 'GITHUB_TOKEN' is unset"
       git_url="https://${GITHUB_TOKEN}@github.com"
 
-   elif test "$upstream" = codeberg ; then
-      test -z "$CODEBERG_TOKEN" && wfmux_die "'CODEBERG_TOKEN' parameter is unset!"
+   elif [ "$upstream" = codeberg ] ; then
+      test -z "${CODEBERG_TOKEN:-}" && wfmux_die "Var 'CODEBERG_TOKEN' is unset"
       git_url="https://${CODEBERG_TOKEN}@codeberg.org"
 
    else
-      wfmux_die "Unsupported upstream!"
+      wfmux_die 'Unsupported upstream!'
    fi
 
    name_file=".wfmux/$upstream"
    test -s "$name_file" && read user_name <"$name_file"
-   test -z "$user_name" && {
+   test -z "${user_name:-}" && {
       printf "username ($upstream): "
       read user_name
    }
@@ -47,6 +47,7 @@ git_push () {
    cbranch=$(git branch --show-current)
 
    git push "$@" "$git_url/$user_name/$proj_name" "$cbranch"
+   read _
 }
 
 add_plug push
@@ -70,4 +71,5 @@ git_push_remote () {
 
    cbranch=$(git branch --show-current)
    git push "$@" "$remote" "$cbranch"
+   read _
 }
