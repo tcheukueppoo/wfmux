@@ -1630,7 +1630,7 @@ run_watcher () {
       setpgid entr $entr_opts "$entr_cmd" <"$efiles" >/dev/null 2>&1 &
       say "$!" >"$pid_file"
    else
-      export entr_opts="${entr_opts}d"
+      export entr_opts="${entr_opts}dd"
       export efiles
       export pid_file
       export entr_cmd

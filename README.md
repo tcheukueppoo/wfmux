@@ -1,7 +1,5 @@
 # WFMUX
 
-![wfmux's logo](url)
-
 Wfmux lets you enhance your developement workflow through `tmux`. It leverages
 tmux's buffers, popup panes, and other tmux features to easily integrate most
 command line tools like `fzf`, `entr`, and `nnn` in your workflow. Wfmux also
@@ -25,7 +23,7 @@ project.
 * Project Manager
 * Watchers
 * File Manager
-* File Opener
+* Auto-File Opener
 * Simple Git Wrapper
 * Pop-up shells
 * Plugins
@@ -106,16 +104,16 @@ opt_wfmux_cbranch () {
    last_wfmux_opt "$proj_dir" cbranch
 
    tmux_message "$(git branch --show-current)"
-   tmux display-popup -C
 }
 ```
 
 #### WFMUX API
 
-- `tmux_or_die`: Check if the script in running in a tmux session and die if not.
+- `tmux_or_die`: Check if the script is running in a tmux session and die if not.
 - `requires`: Check the dependencies of the wfmux operation.
 - `get_proj_dir`: Outputs the project directory
 - `tmux_cur_session`: Outputs the name of the tmux session of the project.
 - `is_git_repository`: Check if the project is tracked by git.
 - `tmux_message`: Display a tmux message
 - `wfmux_die`: Disply a tmux message and die.
+- `last_wfmux_opt`: Tell wfmux the name of the last operation it called.
