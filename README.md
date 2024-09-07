@@ -22,10 +22,10 @@ project.
 * Configurable
 * Project Manager
 * Watchers
+* Git Wrappers
 * File Manager
-* Auto-File Opener
-* Simple Git Wrapper
-* Pop-up shells
+* File Opener
+* Pop-up Terminal
 * Plugins
 
 ### Configuration
@@ -72,7 +72,7 @@ and error of watchers.
 
 (cast)
 
-In the above cast, ...
+In the above video, ...
 
 ### Git Operations
 
@@ -82,22 +82,28 @@ changes to remote repositories from github and codeberg.
 
 (cast)
 
-In the cast, ...
+In the above ...
 
 ### File Manager
 
-Open your file manager on a popup tmux pane, do stuffs and then exit.
+Open your file manager on a popup tmux pane to do some file operations
+
+(cast)
 
 ### File Opener
 
-Automate the opening of project files accross tmux panes.
+Automate the opening of project files accross tmux panes. You can also use
+the `ack` to open project files whose content match a pattern.
+
+(cast)
 
 ### Wfmux Plugins
 
 You can add more wfmux operations by writing plugins. Wfmux loads files with
 names ending with `.wfmux.sh` at `~/.config/wfmux/plugins`.
 
-Here is a wfmux plugin which displays in tmux the name of the current branch:
+Here is an example of wfmux plugin which displays in tmux the name of the
+current branch:
 
 ```sh
 add_plug cbranch
