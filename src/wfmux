@@ -1363,7 +1363,11 @@ del_watcher () {
 opt_wfmux_rwatch () {
    tmux_or_die
 
-   proj_dir=$(get_proj_dir "$(tmux_cur_session)")
+   session=$(tmux_cur_session)
+   id=${session##*-}
+
+   proj_dir=$(get_proj_dir "$session")
+
    test -z "$proj_dir" && die_not_wfmux
 
    cd -L "$proj_dir"
@@ -1376,7 +1380,9 @@ opt_wfmux_rwatch () {
    IFS=${NL%?}
    for name in $names ; do
       del_watcher "$name" "$watch_conf"
+      tmux delete-buffer -b "$name-$id" 2>/dev/null
    done
+
    last_wfmux_opt "$proj_dir" rwatch
 }
 
@@ -1583,11 +1589,11 @@ run_watcher () {
    pid_file="$pid_dir/$wname.pid"
    mkdir -p "$pid_dir"
 
-   if test -s "$pid_file"                    \
-   && read pid <"$pid_file"                   \
-   && expr "$pid" : "\($NUM_RE\)$" >/dev/null  \
+   if test -s "$pid_file"                     \
+   && read pid <"$pid_file"                    \
+   && expr "$pid" : "\($NUM_RE\)$" >/dev/null   \
    && test -d "/proc/$pid" ; then
-      tmux_message "watch($name): The watcher is already running"
+      tmux_message "watch($wname): The watcher is already running"
       return
    fi
  
@@ -1653,7 +1659,7 @@ run_watcher () {
 
 list_buffers () {
    id=$1
-   tmux list-buffers -F '#{buffer_name}' | grep -x "[A-Za-z][-A-Za-z0-9]\+-$id"
+   tmux list-buffers -F '#{buffer_name}' | grep -x "[A-Za-z][-_A-Za-z0-9]\+-$id"
 }
 
 opt_wfmux_vwatch () {
