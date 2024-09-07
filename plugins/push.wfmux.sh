@@ -66,9 +66,10 @@ git_push_remote () {
    remotes=$(git remote show)
    test -z "$remotes" && wfmux_die 'No configured remote!'
 
-   remote=$(say "$remotes" | eval "$MENU")
+   remote=$(say "$remotes" | parallel printf '"%s (%s)\n"' "{}" '"$(git remote get-url --push {})"' | eval "$MENU")
    test -z "$remote" && return
 
+   remote=${remote%% *}
    cbranch=$(git branch --show-current)
    git push "$@" "$remote" "$cbranch"
    read _
