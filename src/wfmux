@@ -189,12 +189,6 @@ OPT:
     acommit      If the working tree is clean, simply run a git amend
                  command; otherwise select changes and add them to the
                  index before running a git amend command.
-    push         Push changes to the configured remote repositories if
-                 any.
-    fpush        Force push to the remote repository, the default push
-                 wfmux operation refuses to update a remote ref that is
-                 not an ancestor of the local ref used to overwrite it.
-
     checkout     Switch to a branch in your project.
     fcheckout    Force the checkout since the above fails if the working
                  tree is not clean.
@@ -218,10 +212,10 @@ OPT:
                  watchers of the current project.
     sawatch      Launch a watcher from the watcher registry of the
                  current project.
-    sowatch      Stop a running watcher launched from the watcher
-                 registry of the current project.
+    sowatch      Stop a running watcher from the watcher registry of the
+                 current project.
 
-    wtop         View the characteristics of all registered watchers.
+    wtop         View the attributes of all registered watchers.
     ops          A wfmux operation to call other wfmux operations whether
                  built-in or gotten via wfmux plugins.
     last         Call the last called wfmux operation.

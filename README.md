@@ -60,15 +60,29 @@ all its running watchers. Within your terminal emulator you can rapidly
 switch between different projects, start a new project, stop some, and so
 on.
 
+(cast)
+
+In the above cast, ...
+
 ### Watchers 
 
-Wfmux uses `entr` to watch your files. You can add, delete, modify, enable,
-disable, and visualize watchers.
+Wfmux uses `entr` to watch project files. Through wfmux operations, you
+can add, delete, modify, enable, disable, and view the standard output
+and error of watchers.
+
+(cast)
+
+In the above cast, ...
 
 ### Git Operations
 
-It's also got few wrappers over some basic git operations like commit,
-branch, log, checkout, etc
+It's also got few wrappers over some basic git operations like git commit,
+branch, log, checkout, diff, etc. It has a default plugin which pushes local
+changes to remote repositories from github and codeberg.
+
+(cast)
+
+In the cast, ...
 
 ### File Manager
 
