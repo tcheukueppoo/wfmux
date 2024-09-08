@@ -19,14 +19,14 @@ project.
 
 ## Features
 
-* [Configurable]()
-* [Project Manager]()
-* [Watchers]()
-* [Git Wrappers]()
-* [File Manager]()
-* [File Opener]()
-* [Pop-up Terminal]()
-* [Plugins]()
+* [Configurable](https://github.com/tcheukueppoo/wfmux?tab=readme-ov-file#configuration)
+* [Project Manager](https://github.com/tcheukueppoo/wfmux?tab=readme-ov-file#project-manager)
+* [Watchers](https://github.com/tcheukueppoo/wfmux?tab=readme-ov-file#watchers)
+* [Git Wrappers](https://github.com/tcheukueppoo/wfmux?tab=readme-ov-file#git-operations)
+* [File Manager](https://github.com/tcheukueppoo/wfmux?tab=readme-ov-file#file-manager)
+* [File Opener](https://github.com/tcheukueppoo/wfmux?tab=readme-ov-file#file-opener)
+* [Pop-up Terminal](https://github.com/tcheukueppoo/wfmux?tab=readme-ov-file#pop-up-terminal)
+* [Plugins](https://github.com/tcheukueppoo/wfmux?tab=readme-ov-file#wfmux-plugins)
 
 ### Configuration
 
@@ -120,15 +120,16 @@ the `ack` to open project files whose content match a pattern.
 
 ### Pop-up Terminal
 
-Just launch a pop-up tmux pane do to stuffs in there and press ctrl-D to
+Just launch a pop-up tmux pane to do stuffs in there and press ctrl-D to
 exit.
 
 [![asciicast](https://asciinema.org/a/dNeEeOoTQ0zyRUbr2ujNtltQY.svg)](https://asciinema.org/a/dNeEeOoTQ0zyRUbr2ujNtltQY)
 
 ### Wfmux Plugins
 
-You can add more wfmux operations by writing plugins. Wfmux loads files with
-names ending with `.wfmux.sh` at `~/.config/wfmux/plugins`.
+We have other wfmux operations you can explore, check them with `wfmux --help`.
+You add wfmux operations by writing plugins. Wfmux loads files with names
+ending with `.wfmux.sh` at `~/.config/wfmux/plugins`.
 
 Here is an example of wfmux plugin which displays in tmux the name of the
 current branch:

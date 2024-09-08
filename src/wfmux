@@ -1,6 +1,5 @@
 #!/bin/dash
 
-#set -x
 set -u
 
 readonly ESC_ALT_SCREEN='\033[?1049h'
