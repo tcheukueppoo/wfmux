@@ -30,8 +30,8 @@ project.
 
 ### Configuration
 
-Wfmux loads `~/.config/wfmux/wfmux.conf` at startup, in this config file your
-default projects' directories is defined as such:
+Wfmux loads `~/.config/wfmux/wfmux.conf` at startup, in this config file
+your default projects' directories is defined as such:
 
 ```sh
 # Projects are located in $HOME/projects.
@@ -52,6 +52,12 @@ To start using wfmux, add this to the bottom of your shell's rc file:
 test -z "${TMUX:-}" && command -v wfmux >/dev/null && . wfmux new
 ```
 
+Dump the tmux config related to wfmux and append it to the tmux config.
+
+```sh
+wfmux dump && wfmux tmux
+```
+
 ### Project Manager
 
 Each opened project has a tmux session. When a project is opened, all the
@@ -60,9 +66,14 @@ all its running watchers. Within your terminal emulator you can rapidly
 switch between different projects, start a new project, stop some, and so
 on.
 
-(cast)
+(demo here)
 
-In the above cast, ...
+In the above video, a tmux session is creared for the `amonia` project, a
+project file is opened, and the same goes for the `wfmux` project. We then
+switch between the different sessions. The tmux session for the `wfmux`
+project is killed with that of `amonia`. You have noticed that other
+tmux session like `ncmpcpp` for example are not in the list fitted to
+`fzf` since it's not a wfmux tmux session.
 
 ### Watchers 
 
@@ -70,9 +81,16 @@ Wfmux uses `entr` to watch project files. Through wfmux operations, you
 can add, delete, modify, enable, disable, and view the standard output
 and error of watchers.
 
-(cast)
+(demo here)
 
-In the above video, ...
+In the above video, we first connect to the tmux session for the `wfmux`
+project and view it watchers via the `wtop` wfmux operation. `wtop` says
+we got an type `1` enabled (`+`) watcher called `install` that ran `20`
+times since this session was created. An enabled watcher is launch at
+session startup, a type `1` means the watcher is a one shot watcher;
+`0` otherwise. We cycled through stdout and stderr of each watcher
+via the configured tmux binding. We then added and started a new watcher
+and repeated the previous operations.
 
 ### Git Operations
 
@@ -80,22 +98,26 @@ It's also got few wrappers over some basic git operations like git commit,
 branch, log, checkout, diff, etc. It has a default plugin which pushes local
 changes to remote repositories from github and codeberg.
 
-(cast)
+(demo here)
 
-In the above ...
+On the maat project, we view its git log, diff and commited changeds made
+in `gc.md`.
+
+We still got other wrappers over some git operations interesting to explore.
 
 ### File Manager
 
 Open your file manager on a popup tmux pane to do some file operations
 
-(cast)
+(demo here)
+
 
 ### File Opener
 
 Automate the opening of project files accross tmux panes. You can also use
 the `ack` to open project files whose content match a pattern.
 
-(cast)
+(demo here)
 
 ### Wfmux Plugins
 
