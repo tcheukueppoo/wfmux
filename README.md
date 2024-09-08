@@ -19,14 +19,14 @@ project.
 
 ## Features
 
-* Configurable
-* Project Manager
-* Watchers
-* Git Wrappers
-* File Manager
-* File Opener
-* Pop-up Terminal
-* Plugins
+* [Configurable]()
+* [Project Manager]()
+* [Watchers]()
+* [Git Wrappers]()
+* [File Manager]()
+* [File Opener]()
+* [Pop-up Terminal]()
+* [Plugins]()
 
 ### Configuration
 
@@ -66,7 +66,7 @@ all its running watchers. Within your terminal emulator you can rapidly
 switch between different projects, start a new project, stop some, and so
 on.
 
-(demo here)
+[![asciicast](https://asciinema.org/a/CBsDeno6MWhD79G2Ju0FvElDv.svg)](https://asciinema.org/a/CBsDeno6MWhD79G2Ju0FvElDv)
 
 In the above video, a tmux session is creared for the `amonia` project, a
 project file is opened, and the same goes for the `wfmux` project. We then
@@ -81,7 +81,7 @@ Wfmux uses `entr` to watch project files. Through wfmux operations, you
 can add, delete, modify, enable, disable, and view the standard output
 and error of watchers.
 
-(demo here)
+[![asciicast](https://asciinema.org/a/F09lPnAfzk2AKXMH3VY1R9cgk.svg)](https://asciinema.org/a/F09lPnAfzk2AKXMH3VY1R9cgk)
 
 In the above video, we first connect to the tmux session for the `wfmux`
 project and view it watchers via the `wtop` wfmux operation. `wtop` says
@@ -98,7 +98,7 @@ It's also got few wrappers over some basic git operations like git commit,
 branch, log, checkout, diff, etc. It has a default plugin which pushes local
 changes to remote repositories from github and codeberg.
 
-(demo here)
+[![asciicast](https://asciinema.org/a/OzznQQ7yDDJzmf4mr1YOHTWm8.svg)](https://asciinema.org/a/OzznQQ7yDDJzmf4mr1YOHTWm8)
 
 On the maat project, we view its git log, diff and commited changeds made
 in `gc.md`.
@@ -109,15 +109,21 @@ We still got other wrappers over some git operations interesting to explore.
 
 Open your file manager on a popup tmux pane to do some file operations
 
-(demo here)
-
+[![asciicast](https://asciinema.org/a/oBjktTQ161sffxukpnCYBBDue.svg)](https://asciinema.org/a/oBjktTQ161sffxukpnCYBBDue)
 
 ### File Opener
 
 Automate the opening of project files accross tmux panes. You can also use
 the `ack` to open project files whose content match a pattern.
 
-(demo here)
+
+
+### Pop-up Terminal
+
+Just launch a pop-up tmux pane do to stuffs in there and press ctrl-D to
+exit.
+
+[![asciicast](https://asciinema.org/a/dNeEeOoTQ0zyRUbr2ujNtltQY.svg)](https://asciinema.org/a/dNeEeOoTQ0zyRUbr2ujNtltQY)
 
 ### Wfmux Plugins
 
