@@ -2,7 +2,7 @@
 
 Wfmux lets you enhance your developement workflow through `tmux`. It leverages
 tmux's buffers, popup panes, and other tmux features to easily integrate most
-command line tools like `fzf`, `entr`, and `nnn` in your workflow. Wfmux also
+command line tools like `fzf`, `entr`, and `nnn` into your workflow. Wfmux also
 lets you handle multiple projects with extreme ease. In order to automate your
 developement workflow, you just need to configure few tmux bindings specific to
 wfmux or simply use the default configuration. Each wfmux tmux binding performs

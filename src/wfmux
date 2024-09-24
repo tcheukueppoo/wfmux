@@ -882,10 +882,10 @@ open_files () {
          use_tty=${data%,$filetype=*}
          use_tty=${use_tty#tty=}
 
-         cmd="${data#*,$filetype=}"
+         cmd=${data#*,$filetype=}
          cmd=$(printf "$cmd" "$file")
 
-         bin="${cmd%% *}"
+         bin=${cmd%% *}
          command -v "$bin" >/dev/null || {
             tmux_message "Unable to open '$file', $bin: not found"
             continue
@@ -913,9 +913,9 @@ run_cmd () {
    cmd=$1
    use_tty=$2
 
-   test "$use_tty" = true || {
+   test "$use_tty" = false && {
       { trap '' HUP; eval "$cmd"; } &
-      return 0
+      tmux display-popup -C
    }
 
    panes=$(tmux list-panes -F '#{pane_current_command}:#P:#{pane_active}')
