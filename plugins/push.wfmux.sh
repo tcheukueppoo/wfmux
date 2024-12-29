@@ -59,7 +59,7 @@ opt_wfmux_fpush () { git_push_remote --set-upstream --force; }
 git_push_remote () {
    tmux_or_die
 
-   requires git
+   requires git parallel
 
    is_git_repository || return
 

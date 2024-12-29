@@ -2040,9 +2040,9 @@ opt_wfmux_ops () {
 
    cmd=$(command -v "$func")
    if test -z "$cmd" ; then
-      tmux_message "$func: undefined wfmux operation"
+      tmux_message "$func: Undefined wfmux operation"
    elif test "$cmd" != "$func" ; then
-      tmux_message "$func: wfmux operation should be a function!"
+      tmux_message "$func: A wfmux operation must be a shell function!"
    else
       eval "$func"
    fi
