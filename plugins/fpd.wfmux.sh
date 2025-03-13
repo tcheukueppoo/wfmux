@@ -1,35 +1,52 @@
-add_plug fpd
 add_plug pd
+add_plug spd
 
-opt_wfmux_fpd () {
-   tmux_or_die
+fzfdoc () {
+   requires fzf stest
 
-   requires fzf perldoc fzfperldoc
+   cache="$HOME/.cache/wfmux_pd_pm_files"
+   dirs=$(perl -E 'say "$_" foreach @INC')
+
+   OIFS=$IFS IFS='
+'
+   if stest -qdr -n "$cache" $dirs \
+   || test -n "$(find $dirs -type d -cnewer "$cache")" ; then
+
+      for dir in $dirs ; do
+         dir_reg="${dir_reg:-}${dir_reg:+|}\Q$dir\E"
+      done
+      pms=$(find $dirs -type f -iname '*.pm' | perl -pE "s#^(?:$dir_reg)/?+(.+)\.pm\$#\$1#;s#/#::#g;")
+      pms=$(printf '%s\n' "$pms" | sort -u | tee -a "$cache")
+   else
+      pms=$(cat "$cache")
+   fi
+
+   printf '%s\n' "$pms" | fzf
+   IFS=$OIFS
 }
+
 
 opt_wfmux_pd () {
    tmux_or_die
 
-   requires fzf perldoc stest
+   requires perldoc
 
-   cache="$HOME/.cache/wfmux_pd_pm_files"
-   lib_dirs=$(perl -E 'say "$_" foreach @INC')
+   pm=$(fzfdoc)
+   test -n "$pm" && run_cmd "perldoc $pm" true
+}
+
+opt_wfmux_spd () {
+   tmux_or_die
+
+   requires perldoc fzfperldoc
+
+   pm=$(fzfdoc)
+   test -z "$pm" && return
+
+   printf 'Search: '
+   read search
 
    IFS='
 '
-   if stest -qdr -n "$cache" $lib_dirs \
-   || test -n "$(find $lib_dirs -type d -cnewer "$cache")" ; then
-
-      for lib_dir in $lib_dirs ; do
-         pms=$(find "$lib_dir" -type f -iname '*.pm' | perl -pE "s#^\Q$lib_dir\E/?+(.+)\.pm\$#\$1#;s#/#::#g;")
-         lib_pms="${lib_pms:-}${lib_pms:+$IFS}${pms}"
-      done
-
-      lib_pms=$(printf '%s\n' "$lib_pms" | uniq | tee -a "$cache")
-   else
-      lib_pms=$(cat "$cache")
-   fi
-
-   pm=$(printf '%s\n' "$lib_pms" | fzf)
-   run_cmd "perldoc $pm" true
+   fzfperldoc "$pm" $search
 }
