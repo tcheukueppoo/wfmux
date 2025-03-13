@@ -930,7 +930,7 @@ run_cmd () {
       target=${target%:1}
 
       test -z "$target" && {
-         target=$(say "$idle_panes" | sort -t: -k1,1n | head -n1)
+         target=$(say "$idle_panes" | sort -t: -k2,2n | head -n1)
          target=${target%:0}
       }
 
@@ -938,7 +938,7 @@ run_cmd () {
       tmux send-keys -t "$target" "$cmd" C-m
 
    # Spawn off a new pane in the current window if there's only one which is busy.
-   elif test $(say "$panes" | wc -l) -eq 1 ; then
+   elif test "$(say "$panes" | wc -l)" -eq 1 ; then
 
       tmux split-window -h "$cmd"
 

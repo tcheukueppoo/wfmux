@@ -127,11 +127,11 @@ exit.
 
 ### Wfmux Plugins
 
-We have other wfmux operations you can explore, check them with `wfmux --help`.
+We have other wfmux operations you can explore, check them via `wfmux --help`.
 You add wfmux operations by writing plugins. Wfmux loads files with names
 ending with `.wfmux.sh` at `~/.config/wfmux/plugins`.
 
-Here is an example of wfmux plugin which displays in tmux the name of the
+Here is an example of a wfmux plugin which displays in tmux the name of the
 current branch:
 
 ```sh
