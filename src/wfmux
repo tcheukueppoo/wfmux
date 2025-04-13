@@ -515,7 +515,7 @@ new_session () {
    test -z "$project" && return
 
    line="${project%%]*}"
-   line="${line#[}"
+   line="${line#\[}"
    proj_ddir=$(say "$PROJ_DIRS" | sed -ne "${line}p")
    proj_name=$(basename "$project")
    session=$(say "$proj_name" | sed -e 'y/-./__/')
