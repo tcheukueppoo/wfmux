@@ -1036,14 +1036,17 @@ commit () {
       file=${change#* }
       ctype=${change%% *}
 
-      test "${ctype%?}" != '-'      \
-         && test "${ctype#?}" = '-'  \
+      unstaged=${ctype#?} staged=${ctype%?}
+
+      test "$staged" != '-'        \
+         && test "$unstaged" = '-'  \
          && continue
 
-      ctype=${ctype#?}
-      test "$ctype" != M       \
-         && test "$ctype" != U  \
+      test "$unstaged" != M       \
+         && test "$unstaged" != U  \
          && continue
+
+      test "$staged" = R && file=${file#* -> }
 
       git add "$file" 2>/dev/null || wfmux_die "'$file' Couldn't be added to the index"
    done
