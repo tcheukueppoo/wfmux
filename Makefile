@@ -6,7 +6,8 @@ GROUP ?= $(USER)
 
 LOCAL_BIN = $(HOME)/.local/bin
 
-WFMUX_SRC := src/wfmux
+WFMUX_SRC  := src/wfmux
+WFMUX_INIT := src/wfmux_init
 
 WFMUX_CONF_DIR = $(HOME)/.config/wfmux
 WFMUX_CONF     = docs/wfmux.conf
@@ -22,6 +23,7 @@ install:
 	install -d $(LOCAL_BIN)
 	install -d $(PLUGIN_DIR)
 	install -m 744 -o $(USER) -g $(GROUP) $(WFMUX_SRC)  $(LOCAL_BIN)
+	install -m 744 -o $(USER) -g $(GROUP) $(WFMUX_INIT) $(LOCAL_BIN)
 	install -m 644 -o $(USER) -g $(GROUP) $(WFMUX_CONF) $(WFMUX_CONF_DIR)
 	install -m 644 -o $(USER) -g $(GROUP) $(WATCHERS)   $(WFMUX_CONF_DIR)
 	install -m 644 -o $(USER) -g $(GROUP) -t $(PLUGIN_DIR) $(PLUGINS)
