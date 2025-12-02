@@ -442,6 +442,22 @@ display_dashboard () {
    printf "${ESC_NORMAL_SCREEN}${ESC_UNSET_ANSI}${ESC_SHOW_CUR}"
 }
 
+# Do certain initializations depending on the project type
+wfmux_init () {
+   ignore_files=''
+   if test -f 'package.json' || test -f 'tsconfig.json' ; then
+      ignore_files="${ignore_files}
+./node_modules
+./dist
+"
+   fi
+
+   if [ -n "$ignore_files" ] ; then
+      mkdir -p .wfmux
+      printf '%s\n' "$ignore_files" >>.wfmux/ignore
+   fi
+}
+
 tmux_cur_session () {
    tmux list-sessions -F '#S:#{session_activity}' | sort -b -t: -k2,2n | tail -n1 | cut -d: -f1
 }
@@ -560,6 +576,8 @@ new_session () {
    else
       exec tmux switch-client -c "$(tmux_cur_pty)" -t "$session"
    fi
+
+   wfmux_init
 }
 
 # Create a new wfmux tmux session while in an existing tmux session
