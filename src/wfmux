@@ -329,7 +329,7 @@ check_conf_vars () {
 
    # This variable is used by all wfmux opts
    for path in $PROJ_DIRS ; do
-      rpath=$(realpath -e "$path" 2>/dev/null)
+      rpath=$(realpath "$path" 2>/dev/null)
 
       test $? -eq 0    || die_conf "'$path' does not exist"
       test -d "$rpath" || die_conf "'$rpath' is not a directory"
@@ -1011,6 +1011,9 @@ opt_wfmux_log () {
 
    last_wfmux_opt "$proj_dir" log
    git log --graph
+
+   read _
+   tmux display-popup -C
 }
 
 git_status () {
@@ -1306,10 +1309,12 @@ check_conf () {
    name=$1
    conf=$2
 
+   # Busybox's sed doesn't support standalone 'b'
    e="
-      1 { s/^w[-+],[01],\[$name\]:.*[:a-zA-Z].*$/1/p; b }
-      $ { s/^end$/1/p; b }
+      1 { s/^w[-+],[01],\[$name\]:.*[:a-zA-Z].*$/1/p; b done }
+      $ { s/^end$/2/p; b done }
       /^\.\($\|\/\)/p
+      :done
    "
    a=$(say "$conf" | wc -l)
    b=$(say "$conf" | sed -ne "$e" | wc -l)
@@ -1331,18 +1336,20 @@ opt_wfmux_mwatch () {
    name=$(select_watcher "$watch_conf" | head -n1)
    test -z "$name" && return
 
+   # Busybox's sed doesn't support standalone 'b'
    e="
       /^w[-+],[01],\[$name\]:/ {
          p
          n
          b loop
       }
-      b
+      b done
       :loop
          /^\.\($\|\/\)/ { p; n; b loop }
          /^end$/  { p; q }
          n
          b loop
+      :done
    "
 
    conf=$(sed -ne "$e" "$watch_conf")
