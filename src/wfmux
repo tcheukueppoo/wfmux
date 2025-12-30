@@ -1942,7 +1942,7 @@ wtop_fetch_print () {
 
    # From $data_x up until at most $term_w
    IFS=${NL%?}
-   for line in $(say "$data" | sed -e "s/^.\{,$(( $data_x - 1 ))\}\(.*\)/\1/;s/^\(.\{,$term_w\}\).*/\1/") ; do
+   for line in $(say "$data" | sed -e "s/^.\{0,$(( $data_x - 1 ))\}\(.*\)/\1/;s/^\(.\{0,$term_w\}\).*/\1/") ; do
       test $l -lt "$data_y" && l=$(( $l + 1 )) && continue
 
       tty_print $y_ $x "$line"
